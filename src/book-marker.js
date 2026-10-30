@@ -1,5 +1,7 @@
 import * as THREE from 'three';
-import {closedInnerDepth,BACK_COVER_TRAVEL} from './cloth-case.js';
+import {closedInnerDepth,frontEndpaperPoint,FRONT_BOARD_THICKNESS,BACK_COVER_TRAVEL} from './cloth-case.js';
+import {CM,PAGE_HEIGHT,COVER_JOINT_X,paperHingeX} from './book-dimensions.js';
+import {paperHeight,paperBlockBottomAt,leftCoverLift,leftCoverTilt} from './page-geometry.js';
 
 function heartShape(){
  const shape=new THREE.Shape();shape.moveTo(0,.04);
@@ -117,14 +119,42 @@ export function createBookMarker(engraving){
 }
 
 export const SPINE_BACKING_X=-2.004,SPINE_BACKING_Z=-.05;
+export const SPINE_LINING_THICKNESS=.125*CM;
 export function createSpineBacking(){
- // A solid navy binding follows the inner cloth shoulders. It overlaps both
- // the white signature and the cloth, including a small head/tail allowance.
- // Coordinates are authored against the actual case rather than a loose box.
- const xs=[-2.04,-2.025,-2.01,-1.99,-1.97,-1.95,-1.93,-1.92],overlap=.009;
- const contour=[[-2.075,.19],...xs.map(x=>[x,closedInnerDepth(x,true)+overlap]),...xs.slice().reverse().map(x=>[x,closedInnerDepth(x,false)-overlap]),[-2.075,-.29]];
- const shape=new THREE.Shape();contour.forEach(([x,z],i)=>{const fn=i?'lineTo':'moveTo';shape[fn](x-SPINE_BACKING_X,z-SPINE_BACKING_Z);});shape.closePath();
- const geometry=new THREE.ExtrudeGeometry(shape,{depth:5.56,bevelEnabled:false,steps:1});geometry.rotateX(Math.PI/2);geometry.translate(0,2.78,0);
+ // A sealed thin lining, rather than a solid plug. Each rectangular section
+ // has the owner's 1.25 mm material thickness; the two short returns attach
+ // to the actual case faces while the middle follows the signature root.
+ const segments=48,indices=[];
+ for(let i=0;i<segments;i++)for(let j=0;j<4;j++){
+  const a=i*4+j,b=i*4+(j+1)%4,c=a+4,d=b+4;indices.push(a,b,c,b,d,c);
+ }
+ indices.push(0,2,1,0,3,2);const last=segments*4;indices.push(last,last+1,last+2,last,last+2,last+3);
+ const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.BufferAttribute(new Float32Array((segments+1)*4*3),3).setUsage(THREE.DynamicDrawUsage));geometry.setIndex(indices);
  const material=new THREE.MeshStandardMaterial({color:0x182c51,roughness:.96});
- const backing=new THREE.Mesh(geometry,material);backing.name='navy-spine-backing';backing.position.set(SPINE_BACKING_X,0,SPINE_BACKING_Z);backing.userData.profile=contour;return backing;
+ const backing=new THREE.Mesh(geometry,material);backing.name='navy-spine-backing';backing.userData.segments=segments;
+ updateSpineBacking(backing,0);return backing;
+}
+export function updateSpineBacking(backing,progress,{coverLift=progress*leftCoverLift(0),coverTilt=leftCoverTilt(0),rootLift=(.09-FRONT_BOARD_THICKNESS)*(1-progress)}={}){
+ const p=THREE.MathUtils.clamp(progress,0,1),thickness=SPINE_LINING_THICKNESS,halfHeight=PAGE_HEIGHT/2+.02;
+ const joint=COVER_JOINT_X+.015,front=frontEndpaperPoint(joint,p,coverLift,0,coverTilt),rear=new THREE.Vector3(joint+BACK_COVER_TRAVEL*p,0,closedInnerDepth(joint,false)+.002);
+ const root=paperHingeX(p)-thickness/2+.001;
+ const radius=thickness*1.1,top=new THREE.Vector3(root,0,paperHeight(0)+rootLift-thickness*1.2),bottom=new THREE.Vector3(root,0,paperBlockBottomAt(0,p)+thickness*1.2);
+ // Explicit returns retain a downward tangent at the root as the front
+ // attachment moves below it. A single interpolating spline can form a
+ // cusp there and flip a whole thickness section near the end of opening.
+ const frontReturn=new THREE.CubicBezierCurve3(new THREE.Vector3(front.x,0,front.y),new THREE.Vector3(Math.min(front.x,root)-radius,0,front.y),top.clone().add(new THREE.Vector3(0,0,radius)),top);
+ const rearReturn=new THREE.CubicBezierCurve3(bottom,bottom.clone().add(new THREE.Vector3(0,0,-radius)),new THREE.Vector3(Math.min(rear.x,root)-radius,0,rear.z),rear);
+ const middle=new THREE.LineCurve3(top,bottom);
+ backing.position.set(SPINE_BACKING_X+BACK_COVER_TRAVEL*p,0,SPINE_BACKING_Z);
+ const position=backing.geometry.attributes.position,segments=backing.userData.segments,profile=[];
+ for(let i=0;i<=segments;i++){
+  const t=i/segments,curve=t<.25?frontReturn:t>.75?rearReturn:middle,u=t<.25?t*4:t>.75?(t-.75)*4:(t-.25)*2;
+  const point=curve.getPoint(u),tangent=curve.getTangent(u),normal=new THREE.Vector3(tangent.z,0,-tangent.x).normalize();profile.push([point.x,point.z]);
+  for(let j=0;j<4;j++){
+   const offset=(j<2?1:-1)*thickness/2;
+   position.setXYZ(i*4+j,point.x+normal.x*offset-backing.position.x,j===1||j===2?halfHeight:-halfHeight,point.z+normal.z*offset-SPINE_BACKING_Z);
+  }
+ }
+ backing.userData.profile=profile;backing.userData.thickness=thickness;backing.userData.progress=p;
+ position.needsUpdate=true;backing.geometry.computeVertexNormals();backing.geometry.computeBoundingBox();backing.geometry.computeBoundingSphere();
 }

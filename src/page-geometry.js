@@ -1,8 +1,14 @@
 import * as THREE from 'three';
 import {frontEndpaperPoint,closedInnerDepth,BACK_COVER_TRAVEL} from './cloth-case.js';
-export const PAGE_WIDTH=3.98,PAGE_HEIGHT=5.5;
-export const paperHeight=s=>-.018+.145*(1-Math.exp(-s/.28))+.035*Math.sin(Math.PI*s/PAGE_WIDTH)+.030*Math.exp(-s/.13)+.05*Math.exp(-Math.pow((s-.28)/.19,2));
-const slope=s=>.145/.28*Math.exp(-s/.28)+.035*Math.PI/PAGE_WIDTH*Math.cos(Math.PI*s/PAGE_WIDTH)-.030/.13*Math.exp(-s/.13)-.10*(s-.28)/(.19*.19)*Math.exp(-Math.pow((s-.28)/.19,2));
+import {PAGE_WIDTH,PAGE_HEIGHT,PAPER_FORE_X,COVER_JOINT_X,paperHingeX} from './book-dimensions.js';
+export {PAGE_WIDTH,PAGE_HEIGHT} from './book-dimensions.js';
+// The binding is the low point. Paper rises in one rounded shoulder, then
+// relaxes across the rest of the leaf. Both halves meet horizontally at the
+// seam; the curvature is concentrated near the binding, not spread flat over
+// the entire page, and there is no secondary crease or narrow raised ridge.
+const SHOULDER=.55;
+export const paperHeight=s=>.085+.055*(1-Math.exp(-((s/SHOULDER)**2)))+.016*Math.sin(Math.PI*s/PAGE_WIDTH)**2;
+const slope=s=>.11*s/(SHOULDER*SHOULDER)*Math.exp(-((s/SHOULDER)**2))+.016*Math.PI/PAGE_WIDTH*Math.sin(2*Math.PI*s/PAGE_WIDTH);
 // Integrate the tangent along the paper, preserving its arc length. At both
 // ends of the turn the sheet matches the bound surface exactly. No crossfade,
 // screen capture or disconnected corner plane participates in a page turn.
@@ -76,16 +82,16 @@ export function updateLeafGeometry(geometry,turn,side=1,lift=0){
 export const leftStackThickness=amount=>.008+.28*amount;
 export const leftCoverLift=amount=>THREE.MathUtils.lerp(.29,.365-.28*amount,THREE.MathUtils.smoothstep(amount,0,.05));
 // A fixed inset on a rigid board keeps the exposed cloth margin continuous.
-export const COVER_PAPER_FORE=1.88;
-export const paperBlockBottomAt=(s,p)=>closedInnerDepth(-1.98+s-(BACK_COVER_TRAVEL-1.98)*p,false)+.025;
+export const COVER_PAPER_FORE=PAPER_FORE_X;
+export const paperBlockBottomAt=(s,p)=>closedInnerDepth(paperHingeX(p)+s-BACK_COVER_TRAVEL*p,false)+.025;
 export function leftCoverTilt(amount){
  const q=frontEndpaperPoint(COVER_PAPER_FORE,0,0,-(leftStackThickness(amount)-.008));
- const x=q.x+2.04,z=q.y+.05;
+ const x=q.x-COVER_JOINT_X,z=q.y+.05;
  return Math.atan2(z,x)+Math.asin((paperHeight(PAGE_WIDTH)+.05-leftCoverLift(amount))/Math.hypot(x,z));
 }
 export function conformCoverEndpaper(geometry,progress,{thickness=.008,coverLift=.29*progress,coverTilt=leftCoverTilt((thickness-.008)/.28),rootLift=0}={}){
  const p=progress,position=geometry.attributes.position,{count,rim,rimCount}=geometry.userData;
- const hinge=-1.98+1.98*p,angle=Math.PI*(1-p),c=Math.cos(angle),s=Math.sin(angle),relax=THREE.MathUtils.smoothstep(p,.78,1);
+ const hinge=paperHingeX(p),angle=Math.PI*(1-p),c=Math.cos(angle),s=Math.sin(angle),relax=THREE.MathUtils.smoothstep(p,.78,1);
  for(let i=0;i<count;i++){
   const x=position.getX(i),y=position.getY(i),z=position.getZ(i),attached=frontEndpaperPoint(COVER_PAPER_FORE-PAGE_WIDTH-x,p,coverLift,-(thickness-.008),coverTilt);
   const settle=relax*(1-THREE.MathUtils.smoothstep(-x,PAGE_WIDTH-.35,PAGE_WIDTH));

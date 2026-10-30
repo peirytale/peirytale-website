@@ -1,16 +1,18 @@
 import * as THREE from 'three';
+import {COVER_HEIGHT,COVER_FORE_X,COVER_JOINT_X,JOINT_WIDTH,SPINE_CORNER_RADIUS,FRONT_COVER_TRAVEL,BACK_COVER_TRAVEL} from './book-dimensions.js';
+export {BACK_COVER_TRAVEL} from './book-dimensions.js';
 
 // One closed, indexed cloth skin: front, both joints, spine, rear and all
 // turned edges. The same vertices/UVs survive the entire binding movement.
 export const FRONT_BOARD_THICKNESS=.045,BACK_BOARD_THICKNESS=.045;
-export const BACK_COVER_TRAVEL=2.10;
-const HALF_HEIGHT=2.85,FORE=2.06,JOINT=-2.04,BEVEL=.005;
+const HALF_HEIGHT=COVER_HEIGHT/2,FORE=COVER_FORE_X,JOINT=COVER_JOINT_X,BEVEL=.005;
 const smooth=x=>{x=THREE.MathUtils.clamp(x,0,1);return x*x*(3-2*x);};
-const groove=x=>x>-2.02&&x<-1.63?Math.sin(Math.PI*(x+2.02)/.39)**2:0;
+const GROOVE_START=JOINT+.02,GROOVE_END=GROOVE_START+JOINT_WIDTH;
+const groove=x=>x>GROOVE_START&&x<GROOVE_END?Math.sin(Math.PI*(x-GROOVE_START)/JOINT_WIDTH)**2:0;
 const bodyX=t=>FORE-BEVEL+(JOINT-FORE+BEVEL)*t;
-export const frontPivotX=p=>JOINT+1.98*p;
+export const frontPivotX=p=>JOINT+FRONT_COVER_TRAVEL*p;
 function flatSpine(t){
- const radius=.055,arc=Math.PI*radius/2,straight=.6-2*radius,d=t*(2*arc+straight);
+ const radius=SPINE_CORNER_RADIUS,arc=Math.PI*radius/2,straight=.6-2*radius,d=t*(2*arc+straight);
  if(d<arc){const a=d/radius;return new THREE.Vector2(JOINT-radius*Math.sin(a),.25-radius+radius*Math.cos(a));}
  if(d<arc+straight)return new THREE.Vector2(JOINT-radius,.25-radius-(d-arc));
  const a=(d-arc-straight)/radius;return new THREE.Vector2(JOINT-radius*Math.cos(a),-.35+radius-radius*Math.sin(a));
@@ -21,7 +23,7 @@ function frontPoint(x,z,p,lift=0,tilt=0){
 }
 function spinePoint(t,p,lift=0,tilt=0){
  const a=frontPoint(JOINT,.25,p,lift,tilt),b=new THREE.Vector2(JOINT+BACK_COVER_TRAVEL*p,-.35);
- const closedLength=.49+Math.PI*.055;
+ const closedLength=.6-2*SPINE_CORNER_RADIUS+Math.PI*SPINE_CORNER_RADIUS;
  const length=THREE.MathUtils.lerp(closedLength,.12,p),angle=(-Math.PI+tilt)*p;
  const ta=new THREE.Vector2(-Math.cos(angle)*length,Math.sin(angle)*length),tb=new THREE.Vector2(length,0);
  const t2=t*t,t3=t2*t;
@@ -45,7 +47,7 @@ function outerPoint(row,p,lift=0,tilt=0){
 function boardThickness(x,front=true){return .035+((front?FRONT_BOARD_THICKNESS:BACK_BOARD_THICKNESS)-.035)*smooth((x-JOINT)/.30);}
 export function closedInnerDepth(x,front=true){return front?.25-.048*groove(x)-boardThickness(x,true):-.35+.048*groove(x)+boardThickness(x,false);}
 export function frontEndpaperPoint(x,p,lift=0,depth=0,tilt=0){
- const slope=x>-2.02&&x<-1.63?-.048*Math.PI/.39*Math.sin(2*Math.PI*(x+2.02)/.39):0;
+ const slope=x>GROOVE_START&&x<GROOVE_END?-.048*Math.PI/JOINT_WIDTH*Math.sin(2*Math.PI*(x-GROOVE_START)/JOINT_WIDTH):0;
  const normal=new THREE.Vector2(-slope,1).normalize(),distance=boardThickness(x,true)+.002-depth;
  return frontPoint(x-normal.x*distance,.25-.048*groove(x)-normal.y*distance,p,lift,tilt);
 }
@@ -93,7 +95,7 @@ function rowsForCase(){
  const total=distance;
  for(const row of rows)row.u=row.distance/total;
  const nearest=(part,x)=>rows.filter(r=>r.part===part&&!r.cap).reduce((a,b)=>Math.abs((part==='front'?bodyX(a.t):bodyX(1-a.t))-x)<Math.abs((part==='front'?bodyX(b.t):bodyX(1-b.t))-x)?a:b);
- return {rows,total,joins:[nearest('front',-1.825).u,nearest('back',-1.825).u]};
+ return {rows,total,joins:[nearest('front',GROOVE_START+JOINT_WIDTH/2).u,nearest('back',GROOVE_START+JOINT_WIDTH/2).u]};
 }
 export class ClothCase {
  constructor(){

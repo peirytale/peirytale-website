@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import {pageTypography,pageTextRows,pageStackAmount} from './content/book.js';
 import {ClothCase,FRONT_BOARD_THICKNESS} from './cloth-case.js';
-import {createBookMarker,markerAttachment,createSpineBacking,SPINE_BACKING_X} from './book-marker.js';
+import {createBookMarker,markerAttachment,createSpineBacking,updateSpineBacking} from './book-marker.js';
 import {createLeafGeometry,updateLeafGeometry,conformCoverEndpaper,leftStackThickness,leftCoverLift,leftCoverTilt} from './page-geometry.js';
+import {PAGE_WIDTH,PAGE_HEIGHT,paperHingeX} from './book-dimensions.js';
 
 const smooth=p=>p*p*(3-2*p);
 export class BookScene{
@@ -32,7 +33,7 @@ export class BookScene{
   };
   this.edgeMaterial.customProgramCacheKey=()=> 'paper-signatures-v2';
   this.blocks=[-1,1].map(side=>{
-   const top=this.paperMaterial(black),back=this.paperMaterial(blank);
+   const top=this.paperMaterial(black),back=this.paperMaterial(blank,true);
    const geometry=createLeafGeometry({thickness:side<0?.008:.36,block:side>0});updateLeafGeometry(geometry,0,side);
    const mesh=new THREE.Mesh(geometry,[top,back,this.edgeMaterial]);mesh.castShadow=true;mesh.receiveShadow=true;this.book.add(mesh);return mesh;
   });
@@ -40,7 +41,7 @@ export class BookScene{
   // signatures. The paper roots overlap at x=0; no transparent overlay masks it.
   this.blocks[0].material[1].map=black;this.spine=createSpineBacking();this.book.add(this.spine);
   this.sheets=Array.from({length:6},()=>{
-   const material=[this.paperMaterial(blank),this.paperMaterial(blank),new THREE.MeshStandardMaterial({color:0xe9e1d1,roughness:1})];
+   const material=[this.paperMaterial(blank),this.paperMaterial(blank,true),new THREE.MeshStandardMaterial({color:0xe9e1d1,roughness:1})];
    const mesh=new THREE.Mesh(createLeafGeometry(),material);mesh.visible=false;mesh.castShadow=true;mesh.receiveShadow=true;this.book.add(mesh);return mesh;
   });
   const markCanvas=document.createElement('canvas');markCanvas.width=1024;markCanvas.height=256;const ctx=markCanvas.getContext('2d');ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#fff';ctx.font='700 150px Georgia';ctx.fillText('Peiry Tale',512,128,860);const mark=new THREE.CanvasTexture(markCanvas);mark.colorSpace=THREE.SRGBColorSpace;
@@ -50,7 +51,22 @@ export class BookScene{
   this.ready=this.makeCover().finally(()=>onReady?.());
   this.tick=this.tick.bind(this);this.frame=requestAnimationFrame(this.tick);
  }
- paperMaterial(map){return new THREE.MeshStandardMaterial({map,color:0xffffff,roughness:.97,metalness:0});}
+ paperMaterial(map,verso=false){
+  // Keep the paper below light clipping so its real surface normals remain
+  // readable. Ambient light reaches the bound seam less readily than the
+  // exposed leaf; this soft contact occlusion follows the material root even
+  // while turning, rather than drawing a line over the book viewport.
+  const material=new THREE.MeshStandardMaterial({map,color:0xebebeb,roughness:.97,metalness:0});
+  material.onBeforeCompile=shader=>{
+   shader.vertexShader=shader.vertexShader.replace('#include <common>','#include <common>\nvarying float bindingDistance;').replace('#include <begin_vertex>',`#include <begin_vertex>\nbindingDistance=(${verso?'1.-uv.x':'uv.x'})*${PAGE_WIDTH.toFixed(8)};`);
+   shader.fragmentShader=shader.fragmentShader.replace('#include <common>','#include <common>\nvarying float bindingDistance;').replace('#include <aomap_fragment>',`#include <aomap_fragment>
+    float distanceFromBinding=max(bindingDistance,0.);
+    float bindingOcclusion=.28*exp(-distanceFromBinding/.28)+.14*exp(-distanceFromBinding/.018);
+    reflectedLight.indirectDiffuse*=1.-bindingOcclusion;`);
+  };
+  material.customProgramCacheKey=()=>`bound-paper-v2-${verso?'verso':'front'}`;
+  return material;
+ }
  paperCanvas(dark){
   const canvas=document.createElement('canvas');canvas.width=1024;canvas.height=1408;const c=canvas.getContext('2d');
   // Deterministic fine fibres and broad, quiet density variation keep black
@@ -90,20 +106,20 @@ export class BookScene{
   // complete spine must remain visible at every width.
   const width=THREE.MathUtils.lerp(this.mobile?5.4:10.2,10.0,smooth(this.progress)),height=Math.max(8.8,width*h/w,6.9*h/Math.max(180,h-170));
   this.camera.left=-height*w/h/2;this.camera.right=height*w/h/2;this.camera.top=height/2;this.camera.bottom=-height/2;this.camera.updateProjectionMatrix();
-  this.layout={width:7.96*w/(height*w/h),height:5.5*h/height,x:w/2,y:h/2};this.ribbon.position.copy(markerAttachment(this.progress,this.mobile));
+  this.layout={width:2*PAGE_WIDTH*w/(height*w/h),height:PAGE_HEIGHT*h/height,x:w/2,y:h/2};this.ribbon.position.copy(markerAttachment(this.progress,this.mobile));
   this.canvas.dispatchEvent(new CustomEvent('bookresize',{detail:this.layout}));if(wasMobile!==undefined&&wasMobile!==this.mobile&&this.page&&!this.animation)this.setSpread(this.page,this.chapter,this.lang);this.dirty=true;
  }
  pose(p){
   this.progress=p;const thickness=leftStackThickness(this.leftStack),coverLift=p*leftCoverLift(this.leftStack);this.blocks[0].geometry.userData.thickness=thickness;updateLeafGeometry(this.blocks[0].geometry,0,-1);const coverTilt=leftCoverTilt(this.leftStack),rootLift=(.09-FRONT_BOARD_THICKNESS)*(1-p);this.clothCase.update(p,coverLift,coverTilt);this.clothCase.setReadingLeaf(false);
   // The first opening lifts only the thin board and its black endpaper.
   // Signatures stay on the right until actual leaves land on the left.
-  const hinge=-1.98+1.98*p;
+  const hinge=paperHingeX(p);
   this.blocks[0].position.set(hinge,0,.20*(1-p)*(1-this.leftStack));this.blocks[0].rotation.y=Math.PI*(1-p);
   this.blocks[1].position.set(hinge,0,0);
   Object.assign(this.blocks[1].geometry.userData,{boundToRear:true,rearProgress:p});updateLeafGeometry(this.blocks[1].geometry,0,1,rootLift);
   const left=this.blocks[0];conformCoverEndpaper(left.geometry,p,{thickness,coverLift,coverTilt,rootLift});
   left.position.set(0,0,0);left.rotation.set(0,0,0);
-  this.spine.visible=p<.08;this.spine.position.x=SPINE_BACKING_X+1.98*p;
+  updateSpineBacking(this.spine,p,{coverLift,coverTilt,rootLift});
   this.contactShadow.scale.x=.5+.5*p;this.dirty=true;this.canvas.dataset.openingProgress=p.toFixed(4);this.canvas.dataset.leftStack=this.leftStack.toFixed(4);this.canvas.dataset.leftThickness=thickness.toFixed(4);this.fit();
  }
  setStack(amount){if(Math.abs(this.leftStack-amount)<1e-6)return;this.leftStack=amount;this.pose(this.progress);}
