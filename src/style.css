@@ -21,7 +21,7 @@
 .spread .page-copy{inset:0;display:block;text-align:center}
 .spread .page-copy[hidden]{display:none}
 .page-copy .printed-label,.page-copy .printed-heading{position:absolute;left:var(--printed-center,51.7578125%);width:88%;transform:translate(-50%,-50%);margin:0;font-family:Georgia,'Noto Serif CJK TC','Noto Serif TC','Songti TC',serif;font-style:normal;font-weight:400;letter-spacing:0}
-.page-copy .printed-label{top:var(--printed-label-top,39.34659%);font-size:clamp(10px,1.2vw,17px);line-height:1;color:#8c806c}
-.page-copy .printed-heading{top:var(--printed-heading-top,49.00568%);font-size:clamp(13px,2.1vw,30px);line-height:1.6;color:#635c50}
+.page-copy .printed-label{top:var(--printed-label-top,39.34659%);font-size:clamp(14px,1.7vw,24px);line-height:1;color:#8c806c}
+.page-copy .printed-heading{top:var(--printed-heading-top,49.00568%);font-size:clamp(18px,3vw,42px);line-height:1.6;color:#635c50}
 .printed-line{display:block;white-space:nowrap}
-@media(max-width:699px){.page-copy .printed-label{font-size:10px}.page-copy .printed-heading{font-size:clamp(10px,3vw,12px)}}
+@media(max-width:699px){.page-copy .printed-label{font-size:14px}.page-copy .printed-heading{font-size:clamp(14px,4.2vw,17px)}}

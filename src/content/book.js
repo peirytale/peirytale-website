@@ -17,7 +17,7 @@ export const copy={
 
 export const pageTypography={
  family:'Georgia, "Noto Serif CJK TC", "Noto Serif TC", "Songti TC", serif',weight:400,
- label:{desktop:30,mobile:49},heading:{desktop:49,mobile:70},englishHeading:{desktop:48,mobile:64},
+ label:{desktop:42,mobile:69},heading:{desktop:68,mobile:98},englishHeading:{desktop:67,mobile:90},
  layout:{x:530,labelY:554,headingY:690,lineHeight:80,maxWidth:820,labelColor:'#8c806c',headingColor:'#635c50'}
 };
 export const pageTextRows=page=>({label:page.eyebrow||page.heading||'',text:page.subtitle||page.heading||'',lines:page.lines||[page.subtitle||page.heading||'']});
