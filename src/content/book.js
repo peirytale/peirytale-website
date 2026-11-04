@@ -1,5 +1,6 @@
 // Page copy and sequence are data; paper geometry and controls do not own it.
-export const sequence={opening:1800,firstPause:500,leafTurn:1050,mixedPause:500,riffling:2000,titlePause:1000,prologuePause:1000};
+export const sequence={opening:1800,firstPause:500*2/3,leafTurn:1050,mixedPause:500,riffling:2000};
+export const pageHint={delay:2000,unfurl:1200,interval:3000,pulse:900};
 export const copy={
  'zh-TW':{coverEyebrow:'故事仍在書寫',coverHeading:'把生活裁剪成喜歡的樣子',title:'Peiry Tale｜把生活剪裁成喜歡的樣子',description:'翻開 Peiry Tale，讓日常，也值得寫成童話。',open:'翻開這本書',language:'English',quiet:'靜謐閱讀',motion:'開啟動態',contents:'書頁',close:'關閉',cover:'回到封面',previous:'上一頁',next:'下一頁',skip:'跳過開場',replay:'重播開場',pause:'暫停',resume:'繼續播放',rotateBook:'旋轉書本',rotateHelp:'拖曳或使用方向鍵旋轉封面，Home 重設角度；Enter 翻開書。',rotateHint:'按住書本拖曳，查看各個角度',playing:'開場播放中',paused:'開場已暫停',complete:'空白頁',chapters:[
   {id:'endpapers',label:'黑色扉頁',left:'black',right:'black'},

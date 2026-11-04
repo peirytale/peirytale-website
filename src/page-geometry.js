@@ -55,16 +55,38 @@ export function createLeafGeometry({thickness=.006,block=false,segments=88,rows=
  geometry.addGroup(0,frontCount,0);geometry.addGroup(frontCount,frontCount,1);geometry.addGroup(edgeStart,indices.length-edgeStart,2);
  geometry.userData={thickness,block,segments,rows,count,rim,rimCount};updateLeafGeometry(geometry,0);return geometry;
 }
-export function updateLeafGeometry(geometry,turn,side=1,lift=0){
+// A developable cylinder rolls only the material beyond a diagonal tangent.
+// Its arc length is q at every strength, including the exactly flat limit.
+export function cornerCurl(s,y,strength){
+ const nx=.9,ny=-Math.sqrt(1-nx*nx),reach=.95;
+ const q=Math.max(0,reach-((PAGE_WIDTH-s)*nx+(y+PAGE_HEIGHT/2)*-ny));
+ const angle=4.2*strength*q/reach;
+ if(q===0||Math.abs(angle)<1e-8)return {s,y,height:0};
+ const along=q*Math.sin(angle)/angle,qShift=along-q;
+ return {s:s+nx*qShift,y:y+ny*qShift,height:q*(1-Math.cos(angle))/angle};
+}
+export function updateLeafGeometry(geometry,turn,side=1,lift=0,curl=0){
  const {thickness,block,segments,rows,count,rim,rimCount}=geometry.userData,profile=leafProfile(turn,segments),p=geometry.attributes.position;
  for(let y=0;y<=rows;y++)for(let x=0;x<=segments;x++){
   const u=x/segments,v=y/rows,s=u*PAGE_WIDTH,q=profile[x];
-  const py=(v-.5)*PAGE_HEIGHT,px=q.x,pz=q.z+lift;
+  let py=(v-.5)*PAGE_HEIGHT,px=q.x,pz=q.z+lift;
+  if(curl>0&&!block){
+   const c=cornerCurl(s,py,curl),sample=THREE.MathUtils.clamp(c.s/PAGE_WIDTH*segments,0,segments),i=Math.min(segments-1,Math.floor(sample)),t=sample-i;
+   const a=THREE.MathUtils.lerp(profile[i].angle,profile[i+1].angle,t);
+   px=THREE.MathUtils.lerp(profile[i].x,profile[i+1].x,t)-c.height*Math.sin(a);
+   pz=THREE.MathUtils.lerp(profile[i].z,profile[i+1].z,t)+c.height*Math.cos(a)+lift;py=c.y;
+  }
   const k=y*(segments+1)+x;
   for(let face=0;face<2;face++){
    const depth=face?-thickness:0;
    p.setXYZ(k+face*count,side*(px-(block?0:depth*Math.sin(q.angle))),py,block&&face?THREE.MathUtils.lerp(pz-.008,(geometry.userData.boundToRear?paperBlockBottomAt(s,geometry.userData.rearProgress||0):geometry.userData.bottom??-.235),geometry.userData.stack??1):pz+(block?0:depth*Math.cos(q.angle)));
   }
+ }
+ if(curl>0&&!block){
+  // The diagonal roll has a Y normal too. Derive the verso from the actual
+  // surface instead of an XZ-only offset, retaining a sealed thin shell.
+  geometry.computeVertexNormals();const n=geometry.attributes.normal;
+  for(let i=0;i<count;i++)p.setXYZ(i+count,p.getX(i)-n.getX(i)*thickness,p.getY(i)-n.getY(i)*thickness,p.getZ(i)-n.getZ(i)*thickness);
  }
  for(let face=0;face<2;face++)for(let i=0;i<rim.length;i++){const from=rim[i]+face*count,to=count*2+face*rimCount+i;p.setXYZ(to,p.getX(from),p.getY(from),p.getZ(from));}
  p.needsUpdate=true;geometry.computeVertexNormals();geometry.computeBoundingSphere();geometry.computeBoundingBox();

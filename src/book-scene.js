@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import {pageTypography,pageTextRows,pageStackAmount} from './content/book.js';
+import {pageTypography,pageTextRows,pageStackAmount,pageHint} from './content/book.js';
 import {ClothCase,FRONT_BOARD_THICKNESS} from './cloth-case.js';
 import {createBookMarker,markerAttachment,createSpineBacking,updateSpineBacking} from './book-marker.js';
 import {createLeafGeometry,updateLeafGeometry,conformCoverEndpaper,leftStackThickness,leftCoverLift,leftCoverTilt} from './page-geometry.js';
@@ -40,9 +40,9 @@ export class BookScene{
   // A narrow, continuous binding lining closes the gutter underneath both
   // signatures. The paper roots overlap at x=0; no transparent overlay masks it.
   this.blocks[0].material[1].map=black;this.spine=createSpineBacking();this.book.add(this.spine);
-  this.sheets=Array.from({length:6},()=>{
+  this.sheets=Array.from({length:6},(_,i)=>{
    const material=[this.paperMaterial(blank),this.paperMaterial(blank,true),new THREE.MeshStandardMaterial({color:0xe9e1d1,roughness:1})];
-   const mesh=new THREE.Mesh(createLeafGeometry(),material);mesh.visible=false;mesh.castShadow=true;mesh.receiveShadow=true;this.book.add(mesh);return mesh;
+   const mesh=new THREE.Mesh(createLeafGeometry({rows:i===0?80:20}),material);mesh.visible=false;mesh.castShadow=true;mesh.receiveShadow=true;this.book.add(mesh);return mesh;
   });
   const markCanvas=document.createElement('canvas');markCanvas.width=1024;markCanvas.height=256;const ctx=markCanvas.getContext('2d');ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#fff';ctx.font='700 150px Georgia';ctx.fillText('Peiry Tale',512,128,860);const mark=new THREE.CanvasTexture(markCanvas);mark.colorSpace=THREE.SRGBColorSpace;
   this.ribbon=createBookMarker(mark);this.book.add(this.ribbon);
@@ -106,7 +106,7 @@ export class BookScene{
   // complete spine must remain visible at every width.
   const width=THREE.MathUtils.lerp(this.mobile?5.4:10.2,10.0,smooth(this.progress)),height=Math.max(8.8,width*h/w,6.9*h/Math.max(180,h-170));
   this.camera.left=-height*w/h/2;this.camera.right=height*w/h/2;this.camera.top=height/2;this.camera.bottom=-height/2;this.camera.updateProjectionMatrix();
-  this.layout={width:2*PAGE_WIDTH*w/(height*w/h),height:PAGE_HEIGHT*h/height,x:w/2,y:h/2};this.ribbon.position.copy(markerAttachment(this.progress,this.mobile));
+  this.layout={width:2*PAGE_WIDTH*w/(height*w/h),height:PAGE_HEIGHT*h/height,x:w/2,y:h/2-this.book.position.y*h/height};this.ribbon.position.copy(markerAttachment(this.progress,this.mobile));
   this.canvas.dispatchEvent(new CustomEvent('bookresize',{detail:this.layout}));if(wasMobile!==undefined&&wasMobile!==this.mobile&&this.page&&!this.animation)this.setSpread(this.page,this.chapter,this.lang);this.dirty=true;
  }
  pose(p){
@@ -124,9 +124,36 @@ export class BookScene{
  }
  setStack(amount){if(Math.abs(this.leftStack-amount)<1e-6)return;this.leftStack=amount;this.pose(this.progress);}
  setSpread(page,index=0,lang='zh-TW'){
+  const hintEnabled=Boolean(this.hint);if(hintEnabled)this.setPageHint(false);
   this.page=page;this.chapter=index;this.lang=lang;this.setStack(pageStackAmount(page));this.blocks[0].material[1].map=this.texture(page.left);this.blocks[0].material[1].needsUpdate=true;this.blocks[0].material[2]=page.left==='black'?this.blackEdgeMaterial:this.edgeMaterial;
   this.blocks.forEach((mesh,i)=>{mesh.material[0].map=this.texture(i?page.right:page.left,i?page:null,lang);mesh.material[0].needsUpdate=true;});
   this.canvas.dataset.page=page.id;this.canvas.dataset.leftStock=page.left;this.canvas.dataset.rightStock=page.right;this.dirty=true;
+  if(hintEnabled)this.setPageHint(true);
+ }
+ setPageHint(enabled){
+  if(Boolean(this.hint)===enabled)return;
+  if(!enabled){
+   this.pendingCurl={page:this.page?.id,strength:this.hintStrength||0};this.hint=null;this.hintStrength=0;
+   this.sheets[0].visible=false;this.canvas.dataset.pageHint='off';this.canvas.dataset.curlStrength='0.0000';this.dirty=true;return;
+  }
+  this.pendingCurl=null;this.hint={elapsed:0};this.hintStrength=0;this.canvas.dataset.pageHint='waiting';this.canvas.dataset.curlStrength='0.0000';
+  const sheet=this.sheets[0];sheet.material[0].map=this.texture(this.page.right,this.page,this.lang);sheet.material[1].map=this.texture('white');sheet.material[0].needsUpdate=sheet.material[1].needsUpdate=true;
+  updateLeafGeometry(sheet.geometry,0,1,.009);sheet.visible=true;this.dirty=true;
+ }
+ updatePageHint(dt){
+  const hint=this.hint;if(!hint||this.paused||document.hidden)return;
+  hint.elapsed+=dt;const elapsed=hint.elapsed-pageHint.delay;
+  let strength=0,state='waiting';
+  if(elapsed>=0){
+   if(elapsed<pageHint.unfurl){const t=elapsed/1000;strength=1-Math.exp(-4.5*t)*(Math.cos(8*t)+4.5/8*Math.sin(8*t));state='curling';}
+   else{
+    strength=1;state='resting';const time=elapsed-pageHint.unfurl,phase=time%pageHint.interval;
+    // Pulse starts every 3000 ms; a damped wave settles fully between pulses.
+    if(time>=pageHint.interval&&phase<pageHint.pulse){const t=phase/pageHint.pulse;strength+=.11*Math.sin(3*Math.PI*t)*Math.sin(Math.PI*t)**2*Math.exp(-2*t);state='pulse';}
+   }
+  }
+  this.canvas.dataset.pageHint=state;this.canvas.dataset.hintElapsed=hint.elapsed.toFixed(1);
+  if(Math.abs(strength-this.hintStrength)>1e-6){this.hintStrength=strength;updateLeafGeometry(this.sheets[0].geometry,0,1,.009,strength);this.canvas.dataset.curlStrength=strength.toFixed(4);this.dirty=true;}
  }
  animate(duration,update,{linear=false,paint=true}={}){
   if(this.animation)throw Error('Book motion must be sequential');
@@ -155,6 +182,7 @@ export class BookScene{
  }
  async turn(next,index,lang,{duration=1050,quiet=false}={}){
   const previous=this.page,direction=index>=this.chapter?1:-1;
+  const curl=direction>0&&this.pendingCurl?.page===previous.id?this.pendingCurl.strength:0;this.pendingCurl=null;
   if(quiet){this.setSpread(next,index,lang);return;}
   const sheet=this.sheets[0],forward=direction>0,startStack=this.leftStack,endStack=pageStackAmount(next);
   sheet.material[0].map=this.texture(forward?previous.right:next.right,forward?previous:next,lang);
@@ -165,7 +193,7 @@ export class BookScene{
   this.blocks[forward?1:0].material[0].map=this.texture(forward?next.right:next.left,forward?next:null,lang);
   this.blocks[forward?1:0].material[0].needsUpdate=true;
   sheet.visible=true;this.canvas.dataset.bindingMotion='turning';
-  await this.animate(duration,p=>{this.setStack(THREE.MathUtils.lerp(startStack,endStack,p));updateLeafGeometry(sheet.geometry,forward?p:1-p,1,.009);this.canvas.dataset.turnProgress=p.toFixed(4);});
+  await this.animate(duration,p=>{this.setStack(THREE.MathUtils.lerp(startStack,endStack,p));updateLeafGeometry(sheet.geometry,forward?p:1-p,1,.009,curl*(1-smooth(Math.min(1,p/.2))));this.canvas.dataset.turnProgress=p.toFixed(4);});
   this.setSpread(next,index,lang);sheet.visible=false;this.canvas.dataset.bindingMotion='open';this.dirty=true;
  }
  async riffle(next,index,lang,duration=2000){
@@ -195,6 +223,7 @@ export class BookScene{
  tick(now){
   const dt=Math.max(0,now-(this.lastTick??now));this.lastTick=now;
   if(this.animation&&!this.paused&&!document.hidden){const a=this.animation;a.elapsed+=Math.min(dt,Math.max(0,now-a.started));const p=a.duration?Math.min(1,a.elapsed/a.duration):1;a.update(a.linear?p:smooth(p));if(a.paint)this.dirty=true;if(p===1){this.animation=null;a.resolve(true);}}
+  this.updatePageHint(dt);
   if(this.dirty){this.renderer.render(this.scene,this.camera);this.canvas.dataset.drawCalls=String(this.renderer.info.render.calls);this.canvas.dataset.triangles=String(this.renderer.info.render.triangles);this.canvas.dataset.textures=String(this.renderer.info.memory.textures);this.dirty=false;this.canvas.dataset.renderCount=String((Number(this.canvas.dataset.renderCount)||0)+1);}
   this.frame=requestAnimationFrame(this.tick);
  }
