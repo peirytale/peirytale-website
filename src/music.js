@@ -58,7 +58,7 @@ export class Music{
  bind(video){
   this.video=video;video.muted=true;const listen=(event,fn)=>video.addEventListener(event,fn,{signal:this.abort.signal});
   for(const event of ['pause','waiting','seeking','ended','emptied'])listen(event,()=>{this.running=false;this.stopPencil();this.syncTheme();});
-  for(const event of ['playing','seeked'])listen(event,()=>{this.running=!video.paused&&video.readyState>=3;this.sync();});listen('timeupdate',()=>this.sync());
+  for(const event of ['playing','seeked'])listen(event,()=>{this.running=!video.paused&&video.readyState>=3;this.sync();});listen('timeupdate',()=>this.sync());listen('ratechange',()=>{this.stopPencil();this.sync();});
  }
  stopPencil(immediate=false){
   const source=this.source;if(!source)return;this.source=null;const gain=this.gain;gain.gain.setTargetAtTime(0,this.context.currentTime,.008);this.fadingSources.add(source);source.stop(this.context.currentTime+(immediate?0:.04));source.onended=()=>{source.disconnect();gain.disconnect();this.fadingSources.delete(source);this.suspendWhenIdle();};this.emit();
@@ -67,9 +67,13 @@ export class Music{
   if(this.disposed)return;const video=this.video,context=this.context;
   if(!this.enabled||!this.running||!video||video.paused||video.ended||document.hidden||context?.state!=='running'){this.stopPencil(document.hidden);this.syncTheme();this.suspendWhenIdle();return;}
   if(!this.buffer){this.loadPencil().catch(()=>{});this.syncTheme();return;}
-  const time=video.currentTime;if(time>=this.buffer.duration){this.stopPencil();this.syncTheme();return;}
+  // Map media progress to elapsed drawing time while keeping the recording at 1x.
+  // The first half of the original sound accompanies the 2x movie; no resampling.
+  const rate=video.playbackRate||1,time=video.currentTime/rate,remaining=(video.duration-video.currentTime)/rate;
+  if(time>=this.buffer.duration||remaining<=.005){this.stopPencil();this.syncTheme();return;}
   if(this.source&&Math.abs(this.offset+(context.currentTime-this.started)-time)<audioSettings.pencil.drift){this.syncTheme();return;}
-  this.stopPencil();const source=context.createBufferSource(),gain=context.createGain();source.buffer=this.buffer;gain.gain.setValueAtTime(0,context.currentTime);gain.gain.linearRampToValueAtTime(audioSettings.pencil.volume,context.currentTime+.015);source.connect(gain);gain.connect(context.destination);this.source=source;this.gain=gain;this.offset=time;this.started=context.currentTime;source.start(0,time);source.onended=()=>{source.disconnect();gain.disconnect();this.fadingSources.delete(source);if(this.source===source){this.source=null;this.syncTheme();this.emit();}this.suspendWhenIdle();};this.syncTheme();this.emit();
+  this.stopPencil();const source=context.createBufferSource(),gain=context.createGain();source.buffer=this.buffer;source.playbackRate.value=1;gain.gain.setValueAtTime(0,context.currentTime);gain.gain.linearRampToValueAtTime(audioSettings.pencil.volume,context.currentTime+Math.min(.015,remaining/2));
+  if(Number.isFinite(remaining)){const fade=Math.min(audioSettings.pencil.endFade,remaining/2);gain.gain.setValueAtTime(audioSettings.pencil.volume,context.currentTime+remaining-fade);gain.gain.linearRampToValueAtTime(0,context.currentTime+remaining);}source.connect(gain);gain.connect(context.destination);this.source=source;this.gain=gain;this.offset=time;this.started=context.currentTime;source.start(0,time);source.onended=()=>{source.disconnect();gain.disconnect();this.fadingSources.delete(source);if(this.source===source){this.source=null;this.syncTheme();this.emit();}this.suspendWhenIdle();};this.syncTheme();this.emit();
  }
  // Retire nodes on the audio clock before suspension. A wall-clock timer can
  // suspend WebKit before a scheduled stop has actually reached its audio time.
