@@ -2,10 +2,10 @@ import * as THREE from 'three';
 import {pageFilmMedia} from '../content/page-film.js';
 const asset=name=>`${import.meta.env.BASE_URL}assets/castle-page-${name}`;
 export class PageFilm{
- constructor(renderer,onFrame,onState=()=>{}){
-  this.renderer=renderer;this.onFrame=onFrame;this.onState=onState;this.active=false;this.complete=false;this.quiet=false;this.disposed=false;this.state='loading';this.abort=new AbortController();this.frames=0;this.generation=0;this.playWanted=false;this.recoveries=0;this.reloads=0;this.deliveredFrames=0;this.pendingSeek=null;
+ constructor(renderer,onFrame,onState=()=>{},preloaded=null){
+  this.preloaded=preloaded;this.renderer=renderer;this.onFrame=onFrame;this.onState=onState;this.active=false;this.complete=false;this.quiet=false;this.disposed=false;this.state='loading';this.abort=new AbortController();this.frames=0;this.generation=0;this.playWanted=false;this.recoveries=0;this.reloads=0;this.deliveredFrames=0;this.pendingSeek=null;
   this.video=document.createElement('video');Object.assign(this.video,{muted:true,playsInline:true,controls:false,loop:false,preload:'auto',disablePictureInPicture:true,disableRemotePlayback:true});this.video.setAttribute('playsinline','');
-  this.sources=['film.mp4','film.webm'];this.sourceIndex=this.video.canPlayType('video/mp4; codecs="avc1.64001f"')?0:1;this.sourceAssigned=false;
+  this.sources=['film.mp4','film.webm'];this.sourceIndex=preloaded?this.sources.indexOf(preloaded.name.replace('castle-page-','')):this.video.canPlayType('video/mp4; codecs="avc1.64001f"')?0:1;this.sourceAssigned=false;
   this.target=new THREE.WebGLRenderTarget(960,672,{depthBuffer:false,stencilBuffer:false,generateMipmaps:false});this.target.texture.colorSpace=THREE.NoColorSpace;
   this.copyScene=new THREE.Scene();this.camera=new THREE.Camera();this.geometry=new THREE.PlaneGeometry(2,2);this.material=new THREE.ShaderMaterial({uniforms:{frame:{value:null},ornament:{value:null}},vertexShader:'varying vec2 vUv;void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}',fragmentShader:'uniform sampler2D frame,ornament;varying vec2 vUv;void main(){vec3 fixedInk=texture2D(ornament,vec2(vUv.x*.5,vUv.y)).rgb;float allowed=texture2D(ornament,vec2(.5+vUv.x*.5,vUv.y)).r;vec3 ink=fixedInk+(texture2D(frame,vUv).rgb-vec3(128./255.))*allowed;gl_FragColor=vec4(clamp(ink,0.,1.),1.);}',depthTest:false,depthWrite:false,blending:THREE.NoBlending,toneMapped:false});this.copyScene.add(new THREE.Mesh(this.geometry,this.material));
   this.neutral=new THREE.DataTexture(new Uint8Array([128,128,128,255]),1,1);this.neutral.needsUpdate=true;this.material.uniforms.ornament.value=this.neutral;this.copy(this.neutral);
@@ -58,7 +58,7 @@ export class PageFilm{
   this.generation++;this.playRequest=null;this.nativePlaying=false;this.policyBlocked=false;this.pendingFrame=false;this.lastPresentedTime=-1;this.pendingSeek=resume>.04?resume:null;
   if(!this.video.paused)this.video.pause();
   if(this.sourceAssigned){this.makeVideoTexture();this.material.uniforms.frame.value=this.neutral;}
-  this.sourceAssigned=true;this.state='starting';this.video.src=asset(this.sources[this.sourceIndex]);this.video.load();this.resetProgress();
+  this.sourceAssigned=true;this.state='starting';this.video.src=this.preloaded?.urls?.[`castle-page-${this.sources[this.sourceIndex]}`]||asset(this.sources[this.sourceIndex]);this.video.load();this.resetProgress();
  }
  requestPlayback(){
   if(!this.playWanted||this.policyBlocked||this.pendingSeek!==null||this.playRequest||!this.video.paused)return;
@@ -81,6 +81,9 @@ export class PageFilm{
    // Some WebKit seeks reach duration - 1 ns without dispatching ended.
    // Require the actual final frame timestamp as well as terminal media time.
    if(this.hasDecodedEnd()){this.finishPlayback();return;}
+   // The complete blob is local: a decoder stuck before its first frame cannot
+   // be waiting for network data. Try the already-preloaded alternate format.
+   if(this.preloaded&&!this.policyBlocked&&this.deliveredFrames===0&&v.currentTime<.05&&now-sample.at>5000){this.recoveries++;this.alternateSource();this.emit();return;}
    if(v.currentTime>sample.time+.01||this.deliveredFrames>sample.frames)this.resetProgress();
    else if(!this.policyBlocked&&v.readyState>=2){
     let future=0,bufferedEnd=-1;for(let i=0;i<v.buffered.length;i++)if(v.buffered.start(i)<=v.currentTime+.1){bufferedEnd=Math.max(bufferedEnd,v.buffered.end(i));future=Math.max(future,v.buffered.end(i)-v.currentTime);}
