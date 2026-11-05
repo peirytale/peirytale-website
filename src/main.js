@@ -12,10 +12,11 @@ let lang=new URLSearchParams(location.search).get('lang')||stored('peiry-languag
 const motionQuery=matchMedia('(prefers-reduced-motion: reduce)');
 let quiet=motionQuery.matches;
 let index=-1,targetIndex=-1,playing=false,turning=false,contents=false,run=0,navigation=0,scene,rotationDrag,pageDrag,suppressPageClick=false;
-let film,filmPromise,filmCompletionAnnounced=false,startupReady=false,preloadedVideo=null;
+let film,filmPromise,rig,rigPromise,rigHandoff=false,filmCompletionAnnounced=false,startupReady=false,preloadedVideo=null;
 const music=new Music(updateMusic);
 const loader=new AssetLoader(({loaded,total})=>{const progress=document.querySelector('#loading-progress');if(progress){if(total){progress.value=Math.min(90,Math.floor(loaded/total*90));progress.textContent=`${progress.value}%`;}else progress.removeAttribute('value');}});
-const filmTest=import.meta.env.DEV&&new URLSearchParams(location.search).has('film-test');
+const rigTest=new URLSearchParams(location.search).has('rig-test');
+const filmTest=rigTest||import.meta.env.DEV&&new URLSearchParams(location.search).has('film-test');
 const e=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 app.innerHTML=`<main class="stage"><canvas id="world" aria-hidden="true"></canvas><div id="book-ui"></div><div class="rotation-arrows" aria-hidden="true"><svg class="rotation-arrow left" viewBox="0 0 64 72"><defs><linearGradient id="arrow-ink" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#e0cbbc"/><stop offset=".55" stop-color="#a98280"/><stop offset="1" stop-color="#735e60"/></linearGradient></defs><path d="M51 11C27 13 16 25 16 39c0 10 6 16 17 19"/><path d="m25 50 9 9-12 3"/></svg><svg class="rotation-arrow right" viewBox="0 0 64 72"><path d="M51 11C27 13 16 25 16 39c0 10 6 16 17 19"/><path d="m25 50 9 9-12 3"/></svg></div><div id="cover-copy" class="cover-heading"></div><button id="open-prompt" class="open-book" data-action="open"></button><p id="announcement" class="sr-only" aria-live="polite"></p></main>`;
 const canvas=document.querySelector('#world'),ui=document.querySelector('#book-ui'),coverCopy=document.querySelector('#cover-copy'),openPrompt=document.querySelector('#open-prompt'),arrows=document.querySelector('.rotation-arrows');
@@ -32,16 +33,27 @@ function updateMusic(state){
 function forwardLocked(){return index===4&&Boolean(scene)&&!quiet&&(!film||!film.complete);}
 function syncNavigation(){const next=ui.querySelector('[data-action=next]');if(next)next.disabled=turning||forwardLocked();canvas.dataset.nextLocked=String(forwardLocked());}
 function advance(){if(!forwardLocked())go(targetIndex===4?-1:targetIndex+1);}
-function filmState(state){if(state.active&&(state.state==='playing'||(quiet&&state.state==='finished')))loader.startStage('castlePlaying');canvas.dataset.filmState=state.state;canvas.dataset.filmTime=state.time.toFixed(4);canvas.dataset.filmActive=String(state.active);canvas.dataset.filmFrames=String(state.frames);canvas.dataset.filmSource=state.source;canvas.dataset.filmGeneration=String(state.generation);canvas.dataset.filmRecoveries=String(state.recoveries);canvas.dataset.filmPresentedTime=state.presentedTime.toFixed(4);syncNavigation();if(state.state==='finished'&&state.active&&film?.finishedNaturally&&!filmCompletionAnnounced){filmCompletionAnnounced=true;announce();}if(state.state==='finished'&&state.active&&film?.finishedNaturally&&!quiet)scene?.startCompletionSparkle();}
+function prepareRig(){
+ rigPromise??=import('./castle-rig/controller.js').then(async({CastleRig})=>{rig=new CastleRig(scene.renderer,()=>scene.dirty=true,()=>{canvas.dataset.rigActive=String(Boolean(rig?.active));canvas.dataset.rigMode=rig?.mode||'loading';});if(rigTest){window.__peiryCastleRig=rig;window.__peiryBook=scene;}await rig.ready;canvas.dataset.rigReady='true';return rig;});return rigPromise;
+}
+async function handoffRig(){
+ if(rigHandoff)return;rigHandoff=true;
+ try{await prepareRig();if(rig.disposed||film.disposed)return;film.tick();rig.capture(film.texture);
+ // Let the existing completion glints finish before the local-only loop starts.
+ const canAttach=await new Promise(resolve=>{const settled=()=>{if(rig.disposed||film.disposed){resolve(false);return;}if(index===4&&!turning&&!contents&&!playing&&scene.bindingMotion==='open'&&!scene.animation&&(!scene.completion||quiet)){resolve(true);return;}requestAnimationFrame(settled);};requestAnimationFrame(settled);});if(!canAttach)return;
+ if(rig.disposed||film.disposed)return;scene.attachPageFilm(rig);rig.resume();rig.setActive(startupReady&&index===4&&!turning&&!contents&&!playing,quiet);canvas.dataset.rigHandoff='complete';
+ }catch(error){rigHandoff=false;console.warn('Local castle animation unavailable; keeping completed artwork.',error.message);}
+}
+function filmState(state){if(scene&&state.state==='playing')prepareRig().catch(()=>{});if(scene&&state.state==='finished'&&film?.finishedNaturally)handoffRig();if(state.active&&(state.state==='playing'||(quiet&&state.state==='finished')))loader.startStage('castlePlaying');canvas.dataset.filmState=state.state;canvas.dataset.filmTime=state.time.toFixed(4);canvas.dataset.filmActive=String(state.active);canvas.dataset.filmFrames=String(state.frames);canvas.dataset.filmSource=state.source;canvas.dataset.filmGeneration=String(state.generation);canvas.dataset.filmRecoveries=String(state.recoveries);canvas.dataset.filmPresentedTime=state.presentedTime.toFixed(4);syncNavigation();if(state.state==='finished'&&state.active&&film?.finishedNaturally&&!filmCompletionAnnounced){filmCompletionAnnounced=true;announce();}if(state.state==='finished'&&state.active&&film?.finishedNaturally&&!quiet)scene?.startCompletionSparkle();}
 async function syncFilm(){
- const active=()=>startupReady&&index===4&&!turning&&!contents&&!playing;film?.setActive(active(),quiet);
+ const active=()=>startupReady&&index===4&&!turning&&!contents&&!playing;film?.setActive(active(),quiet);rig?.setActive(Boolean(rigHandoff&&canvas.dataset.rigHandoff==='complete'&&active()),quiet);
  if(!scene||index<2||film)return;
  filmPromise??=import('./page-film/controller.js').then(({PageFilm})=>{film=new PageFilm(scene.renderer,()=>scene.dirty=true,filmState,preloadedVideo);scene.attachPageFilm(film);music.bind(film.video);if(filmTest){window.__peiryPageFilm=film;window.__peiryBook=scene;}film.setActive(active(),quiet);return film;});
  await filmPromise;
 }
-canvas.addEventListener('webglcontextlost',()=>film?.setActive(false));
-canvas.addEventListener('webglcontextrestored',()=>{film?.restore();scene?.filmCompositor?.invalidate();if(scene){scene.renderer.shadowMap.needsUpdate=true;scene.dirty=true;}syncFilm();});
-window.addEventListener('pagehide',ev=>{if(ev.persisted)film?.setActive(false);else{film?.dispose();music.dispose();loader.dispose();scene?.filmCompositor?.dispose();if(scene)cancelAnimationFrame(scene.frame);}});
+canvas.addEventListener('webglcontextlost',()=>{film?.setActive(false);rig?.setActive(false);});
+canvas.addEventListener('webglcontextrestored',()=>{film?.restore();rig?.restore();scene?.filmCompositor?.invalidate();if(scene){scene.renderer.shadowMap.needsUpdate=true;scene.dirty=true;}syncFilm();});
+window.addEventListener('pagehide',ev=>{if(ev.persisted){film?.setActive(false);rig?.setActive(false);}else{film?.dispose();rig?.dispose();music.dispose();loader.dispose();scene?.filmCompositor?.dispose();if(scene)cancelAnimationFrame(scene.frame);}});
 window.addEventListener('pageshow',ev=>{if(ev.persisted)syncFilm();});
 function render(){
  const t=copy[lang],page=t.chapters[index],printed=page?pageTextRows(page):null;
@@ -66,7 +78,7 @@ function render(){
  if(contents){const modal=ui.querySelector('.contents');for(const child of ui.children)if(child!==modal)child.inert=true;}
 }
 function announce(){document.querySelector('#announcement').textContent=index<0?copy[lang].cover:index===4&&filmCompletionAnnounced?pageFilmCopy[lang].finished:copy[lang].chapters[index].label;}
-function address(){history.replaceState(null,'',`?lang=${lang}${filmTest?'&film-test=1':''}#${index<0?'cover':copy[lang].chapters[index].id}`);}
+function address(){history.replaceState(null,'',`?lang=${lang}${rigTest?'&rig-test=1':filmTest?'&film-test=1':''}#${index<0?'cover':copy[lang].chapters[index].id}`);}
 async function stop(){run++;playing=false;scene?.setPaused(false);await scene?.finishMotion();index=targetIndex;turning=false;}
 async function move(next,{immediate=false,duration=sequence.leafTurn}={}){
  const page=copy[lang].chapters[next];targetIndex=next;turning=true;render();
