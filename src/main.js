@@ -17,7 +17,7 @@ const music=new Music(updateMusic);
 const loader=new AssetLoader(({loaded,total})=>{const progress=document.querySelector('#loading-progress');if(progress){if(total){progress.value=Math.min(90,Math.floor(loaded/total*90));progress.textContent=`${progress.value}%`;}else progress.removeAttribute('value');}});
 const filmTest=import.meta.env.DEV&&new URLSearchParams(location.search).has('film-test');
 const e=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-app.innerHTML=`<main class="stage"><section id="loading-screen" class="loading-screen" role="status" aria-live="polite"><div class="loading-card"><div class="loading-ornament" aria-hidden="true">✧</div><p class="loading-brand">PEIRY TALE</p><h1 id="loading-title"></h1><p id="loading-detail"></p><progress id="loading-progress" max="100" aria-labelledby="loading-title"></progress><button id="loading-retry" hidden></button></div></section><canvas id="world" aria-hidden="true"></canvas><div id="book-ui"></div><div class="rotation-arrows" aria-hidden="true"><svg class="rotation-arrow left" viewBox="0 0 64 72"><defs><linearGradient id="arrow-ink" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#e0cbbc"/><stop offset=".55" stop-color="#a98280"/><stop offset="1" stop-color="#735e60"/></linearGradient></defs><path d="M51 11C27 13 16 25 16 39c0 10 6 16 17 19"/><path d="m25 50 9 9-12 3"/></svg><svg class="rotation-arrow right" viewBox="0 0 64 72"><path d="M51 11C27 13 16 25 16 39c0 10 6 16 17 19"/><path d="m25 50 9 9-12 3"/></svg></div><div id="cover-copy" class="cover-heading"></div><button id="open-prompt" class="open-book" data-action="open"></button><p id="announcement" class="sr-only" aria-live="polite"></p></main>`;
+app.innerHTML=`<main class="stage"><canvas id="world" aria-hidden="true"></canvas><div id="book-ui"></div><div class="rotation-arrows" aria-hidden="true"><svg class="rotation-arrow left" viewBox="0 0 64 72"><defs><linearGradient id="arrow-ink" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#e0cbbc"/><stop offset=".55" stop-color="#a98280"/><stop offset="1" stop-color="#735e60"/></linearGradient></defs><path d="M51 11C27 13 16 25 16 39c0 10 6 16 17 19"/><path d="m25 50 9 9-12 3"/></svg><svg class="rotation-arrow right" viewBox="0 0 64 72"><path d="M51 11C27 13 16 25 16 39c0 10 6 16 17 19"/><path d="m25 50 9 9-12 3"/></svg></div><div id="cover-copy" class="cover-heading"></div><button id="open-prompt" class="open-book" data-action="open"></button><p id="announcement" class="sr-only" aria-live="polite"></p></main>`;
 const canvas=document.querySelector('#world'),ui=document.querySelector('#book-ui'),coverCopy=document.querySelector('#cover-copy'),openPrompt=document.querySelector('#open-prompt'),arrows=document.querySelector('.rotation-arrows');
 ui.style.setProperty('--printed-label-top',`${pageTypography.layout.labelY/1408*100}%`);ui.style.setProperty('--printed-heading-top',`${pageTypography.layout.headingY/1408*100}%`);ui.style.setProperty('--printed-center',`${pageTypography.layout.x/1024*100}%`);
 ui.style.setProperty('--cover-image',`url("${import.meta.env.BASE_URL}assets/storybook-cover.webp")`);
@@ -34,7 +34,7 @@ function syncNavigation(){const next=ui.querySelector('[data-action=next]');if(n
 function advance(){if(!forwardLocked())go(targetIndex===4?-1:targetIndex+1);}
 function filmState(state){if(state.active&&(state.state==='playing'||(quiet&&state.state==='finished')))loader.startStage('castlePlaying');canvas.dataset.filmState=state.state;canvas.dataset.filmTime=state.time.toFixed(4);canvas.dataset.filmActive=String(state.active);canvas.dataset.filmFrames=String(state.frames);canvas.dataset.filmSource=state.source;canvas.dataset.filmGeneration=String(state.generation);canvas.dataset.filmRecoveries=String(state.recoveries);canvas.dataset.filmPresentedTime=state.presentedTime.toFixed(4);syncNavigation();if(state.state==='finished'&&state.active&&film?.finishedNaturally&&!filmCompletionAnnounced){filmCompletionAnnounced=true;announce();}if(state.state==='finished'&&state.active&&film?.finishedNaturally&&!quiet)scene?.startCompletionSparkle();}
 async function syncFilm(){
- const active=()=>index===4&&!turning&&!contents&&!playing;film?.setActive(active(),quiet);
+ const active=()=>startupReady&&index===4&&!turning&&!contents&&!playing;film?.setActive(active(),quiet);
  if(!scene||index<2||film)return;
  filmPromise??=import('./page-film/controller.js').then(({PageFilm})=>{film=new PageFilm(scene.renderer,()=>scene.dirty=true,filmState,preloadedVideo);scene.attachPageFilm(film);music.bind(film.video);if(filmTest){window.__peiryPageFilm=film;window.__peiryBook=scene;}film.setActive(active(),quiet);return film;});
  await filmPromise;
@@ -49,9 +49,9 @@ function render(){
  document.documentElement.dataset.coverVisible=String(index<0&&!turning);
  openPrompt.innerHTML=`<span class="open-main">${t.open} <span aria-hidden="true">↗</span></span><span class="open-help">${t.openHelp}</span>`;openPrompt.disabled=!startupReady||index>=0||turning||contents;openPrompt.setAttribute('aria-hidden',String(openPrompt.disabled));
  syncFilm();
- if(index===4&&!scene)loader.startStage('castlePlaying');
+ if(startupReady&&index===4&&!scene)loader.startStage('castlePlaying');
  if(quiet)scene?.stopCompletionSparkle();
- scene?.setPageHint(!quiet&&!playing&&!turning&&!contents&&(index===2||index===3));
+ scene?.setPageHint(startupReady&&!quiet&&!playing&&!turning&&!contents&&(index===2||index===3));
  coverCopy.setAttribute('aria-hidden',String(index>=0||turning||contents));coverCopy.inert=contents;
  if(coverCopy.lang!==lang){coverCopy.lang=lang;coverCopy.innerHTML=`<span class="eyebrow">${t.coverEyebrow}</span><h1>${t.coverHeading}</h1>`;}
  document.title=t.title;for(const sel of ['meta[name="description"]','meta[property="og:description"]'])document.querySelector(sel)?.setAttribute('content',t.description);document.querySelector('meta[property="og:title"]')?.setAttribute('content',t.title);
@@ -147,12 +147,20 @@ window.addEventListener('blur',()=>{rotationDrag=null;pageDrag=null;suppressPage
 window.addEventListener('hashchange',()=>{if(startupReady)go(chapterIndex(lang,location.hash),{immediate:quiet});});
 motionQuery.addEventListener('change',async ev=>{quiet=ev.matches;if(quiet&&playing)await go(2,{immediate:true});else render();});
 const loading=document.querySelector('#loading-screen'),retry=document.querySelector('#loading-retry'),loadingText=loadingCopy[lang];
-document.querySelector('#loading-title').textContent=loadingText.title;document.querySelector('#loading-detail').textContent=loadingText.detail;retry.textContent=loadingText.retry;ui.inert=true;render();
+document.querySelector('#loading-title').textContent=loadingText.title;document.querySelector('#loading-detail').textContent=loadingText.detail;retry.textContent=loadingText.retry;ui.inert=true;coverCopy.inert=true;render();
 async function prepareStory(){
  retry.hidden=true;document.querySelector('#loading-detail').textContent=loadingText.detail;document.querySelector('#loading-progress').removeAttribute('value');
  const results=await Promise.allSettled([loader.prepareVideo(),music.prepare(),...['castle-page-blank.webp','castle-page-final.webp','castle-page-border.webp','castle-page-fallback.webp'].map(name=>loader.load(name))]);
  if(results.some(result=>result.status==='rejected')){document.querySelector('#loading-detail').textContent=loadingText.error;retry.hidden=false;return;}
- preloadedVideo=results[0].value;document.querySelector('#loading-progress').value=100;startupReady=true;ui.inert=false;loading.hidden=true;render();music.setEnabled(true);
- if(location.hash&&location.hash!=='#cover')go(chapterIndex(lang,location.hash),{immediate:true});
+ preloadedVideo=results[0].value;
+ // Settle the GPU and requested spread beneath the same screen that was painted
+ // by index.html. In particular, a chapter URL must never reveal the cover first.
+ await scene?.ready;
+ if(location.hash&&location.hash!=='#cover')await go(chapterIndex(lang,location.hash),{immediate:true});
+ await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+ document.querySelector('#loading-progress').value=100;music.setEnabled(true);
+ loading.classList.add('leaving');
+ if(!quiet)await new Promise(resolve=>{const done=()=>{loading.removeEventListener('transitionend',ended);clearTimeout(timer);resolve();};const ended=event=>{if(event.target===loading&&event.propertyName==='opacity')done();};const timer=setTimeout(done,1100);loading.addEventListener('transitionend',ended);});
+ loading.hidden=true;startupReady=true;ui.inert=false;render();coverCopy.inert=false;
 }
 retry.addEventListener('click',prepareStory);prepareStory();
