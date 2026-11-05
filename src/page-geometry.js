@@ -1,14 +1,13 @@
 import * as THREE from 'three';
-import {frontEndpaperPoint,closedInnerDepth,BACK_COVER_TRAVEL} from './cloth-case.js';
-import {PAGE_WIDTH,PAGE_HEIGHT,PAPER_FORE_X,COVER_JOINT_X,paperHingeX} from './book-dimensions.js';
+import {closedInnerDepth,BACK_COVER_TRAVEL} from './cloth-case.js';
+import {PAGE_WIDTH,PAGE_HEIGHT,PAPER_FORE_X,paperHingeX} from './book-dimensions.js';
 export {PAGE_WIDTH,PAGE_HEIGHT} from './book-dimensions.js';
-// The binding is the low point. Paper rises in one rounded shoulder, then
-// relaxes across the rest of the leaf. Both halves meet horizontally at the
-// seam; the curvature is concentrated near the binding, not spread flat over
-// the entire page, and there is no secondary crease or narrow raised ridge.
-const SHOULDER=.55;
-export const paperHeight=s=>.085+.055*(1-Math.exp(-((s/SHOULDER)**2)))+.016*Math.sin(Math.PI*s/PAGE_WIDTH)**2;
-const slope=s=>.11*s/(SHOULDER*SHOULDER)*Math.exp(-((s/SHOULDER)**2))+.016*Math.PI/PAGE_WIDTH*Math.sin(2*Math.PI*s/PAGE_WIDTH);
+import {PAPER_SURFACE_Z,leftPagePoint,leftStackThickness} from './binding-kinematics.js';
+export {leftStackThickness} from './binding-kinematics.js';
+// Reading faces are planar and parallel to their boards. Their common profile
+// is also the exact endpoint of every physical turning leaf.
+export const paperHeight=()=>PAPER_SURFACE_Z;
+const slope=()=>0;
 // Integrate the tangent along the paper, preserving its arc length. At both
 // ends of the turn the sheet matches the bound surface exactly. No crossfade,
 // screen capture or disconnected corner plane participates in a page turn.
@@ -98,30 +97,13 @@ export function updateLeafGeometry(geometry,turn,side=1,lift=0,curl=0){
  }
 }
 
-// One thin endpaper, attached to the board over its broad face and folded
-// continuously into the signature at the gutter. Rebuild the verso from
-// surface normals so the thin shell cannot collapse where that fold turns.
-export const leftStackThickness=amount=>.008+.28*amount;
-export const leftCoverLift=amount=>THREE.MathUtils.lerp(.29,.365-.28*amount,THREE.MathUtils.smoothstep(amount,0,.05));
-// A fixed inset on a rigid board keeps the exposed cloth margin continuous.
+// Transform the complete sealed left shell by the same rigid frame as the board.
 export const COVER_PAPER_FORE=PAPER_FORE_X;
 export const paperBlockBottomAt=(s,p)=>closedInnerDepth(paperHingeX(p)+s-BACK_COVER_TRAVEL*p,false)+.025;
-export function leftCoverTilt(amount){
- const q=frontEndpaperPoint(COVER_PAPER_FORE,0,0,-(leftStackThickness(amount)-.008));
- const x=q.x-COVER_JOINT_X,z=q.y+.05;
- return Math.atan2(z,x)+Math.asin((paperHeight(PAGE_WIDTH)+.05-leftCoverLift(amount))/Math.hypot(x,z));
-}
-export function conformCoverEndpaper(geometry,progress,{thickness=.008,coverLift=.29*progress,coverTilt=leftCoverTilt((thickness-.008)/.28),rootLift=0}={}){
- const p=progress,position=geometry.attributes.position,{count,rim,rimCount}=geometry.userData;
- const hinge=paperHingeX(p),angle=Math.PI*(1-p),c=Math.cos(angle),s=Math.sin(angle),relax=THREE.MathUtils.smoothstep(p,.78,1);
- for(let i=0;i<count;i++){
-  const x=position.getX(i),y=position.getY(i),z=position.getZ(i),attached=frontEndpaperPoint(COVER_PAPER_FORE-PAGE_WIDTH-x,p,coverLift,-(thickness-.008),coverTilt);
-  const settle=relax*(1-THREE.MathUtils.smoothstep(-x,PAGE_WIDTH-.35,PAGE_WIDTH));
-  const readingX=hinge+x*c+z*s,readingZ=.20*(1-p)-x*s+z*c,pin=1-THREE.MathUtils.smoothstep(-x,0,.32);
-  position.setXYZ(i,THREE.MathUtils.lerp(THREE.MathUtils.lerp(attached.x,readingX,settle),hinge,pin),y,THREE.MathUtils.lerp(THREE.MathUtils.lerp(attached.y,readingZ,settle),paperHeight(0)+rootLift,pin)+(-x<.32?.08*Math.sin(Math.PI*(-x)/.32)*Math.sin(Math.PI*p):0));
- }
- geometry.computeVertexNormals();const normal=geometry.attributes.normal;
- for(let i=0;i<count;i++)position.setXYZ(i+count,position.getX(i)-normal.getX(i)*thickness,position.getY(i)-normal.getY(i)*thickness,position.getZ(i)-normal.getZ(i)*thickness);
- for(let face=0;face<2;face++)for(let i=0;i<rim.length;i++){const from=rim[i]+face*count,to=count*2+face*rimCount+i;position.setXYZ(to,position.getX(from),position.getY(from),position.getZ(from));}
- position.needsUpdate=true;geometry.computeVertexNormals();geometry.computeBoundingBox();geometry.computeBoundingSphere();
+export function conformCoverEndpaper(geometry,progress,{thickness=geometry.userData.thickness??.008}={}){
+ const amount=(thickness-.008)/.28,p=geometry.attributes.position,angle=Math.PI*(1-progress),c=Math.cos(angle),s=Math.sin(angle);
+ for(let i=0;i<p.count;i++){const q=leftPagePoint(p.getX(i),p.getZ(i),progress,amount);p.setXYZ(i,q.x,p.getY(i),q.z);}
+ const normal=geometry.attributes.normal;
+ for(let i=0;i<normal.count;i++){const x=normal.getX(i),z=normal.getZ(i);normal.setXYZ(i,c*x+s*z,normal.getY(i),-s*x+c*z);}
+ p.needsUpdate=normal.needsUpdate=true;geometry.computeBoundingBox();geometry.computeBoundingSphere();
 }

@@ -1,30 +1,27 @@
 import * as THREE from 'three';
-import {COVER_HEIGHT,COVER_FORE_X,COVER_JOINT_X,JOINT_WIDTH,SPINE_CORNER_RADIUS,FRONT_COVER_TRAVEL,BACK_COVER_TRAVEL} from './book-dimensions.js';
+import {COVER_HEIGHT,COVER_FORE_X,COVER_JOINT_X,JOINT_WIDTH,SPINE_CORNER_RADIUS,BACK_COVER_TRAVEL,FRONT_BOARD_THICKNESS,BACK_BOARD_THICKNESS} from './book-dimensions.js';
 export {BACK_COVER_TRAVEL} from './book-dimensions.js';
 
 // One closed, indexed cloth skin: front, both joints, spine, rear and all
 // turned edges. The same vertices/UVs survive the entire binding movement.
-export const FRONT_BOARD_THICKNESS=.045,BACK_BOARD_THICKNESS=.045;
+export {FRONT_BOARD_THICKNESS,BACK_BOARD_THICKNESS} from './book-dimensions.js';
+import {frontBoardPoint,FRONT_INNER_Z} from './binding-kinematics.js';
 const HALF_HEIGHT=COVER_HEIGHT/2,FORE=COVER_FORE_X,JOINT=COVER_JOINT_X,BEVEL=.005;
 const smooth=x=>{x=THREE.MathUtils.clamp(x,0,1);return x*x*(3-2*x);};
 const GROOVE_START=JOINT+.02,GROOVE_END=GROOVE_START+JOINT_WIDTH;
 const groove=x=>x>GROOVE_START&&x<GROOVE_END?Math.sin(Math.PI*(x-GROOVE_START)/JOINT_WIDTH)**2:0;
 const bodyX=t=>FORE-BEVEL+(JOINT-FORE+BEVEL)*t;
-export const frontPivotX=p=>JOINT+FRONT_COVER_TRAVEL*p;
 function flatSpine(t){
  const radius=SPINE_CORNER_RADIUS,arc=Math.PI*radius/2,straight=.6-2*radius,d=t*(2*arc+straight);
  if(d<arc){const a=d/radius;return new THREE.Vector2(JOINT-radius*Math.sin(a),.25-radius+radius*Math.cos(a));}
  if(d<arc+straight)return new THREE.Vector2(JOINT-radius,.25-radius-(d-arc));
  const a=(d-arc-straight)/radius;return new THREE.Vector2(JOINT-radius*Math.cos(a),-.35+radius-radius*Math.sin(a));
 }
-function frontPoint(x,z,p,lift=0,tilt=0){
- const angle=(-Math.PI+tilt)*p,c=Math.cos(angle),s=Math.sin(angle);
- return new THREE.Vector2(frontPivotX(p)+(x-JOINT)*c+(z+.05)*s,-.05-(x-JOINT)*s+(z+.05)*c+lift);
-}
-function spinePoint(t,p,lift=0,tilt=0){
- const a=frontPoint(JOINT,.25,p,lift,tilt),b=new THREE.Vector2(JOINT+BACK_COVER_TRAVEL*p,-.35);
+function frontPoint(x,z,p,amount=0){const q=frontBoardPoint(x,z,p,amount);return new THREE.Vector2(q.x,q.z);}
+function spinePoint(t,p,amount=0){
+ const a=frontPoint(JOINT,.25,p,amount),b=new THREE.Vector2(JOINT+BACK_COVER_TRAVEL*p,-.35);
  const closedLength=.6-2*SPINE_CORNER_RADIUS+Math.PI*SPINE_CORNER_RADIUS;
- const length=THREE.MathUtils.lerp(closedLength,.12,p),angle=(-Math.PI+tilt)*p;
+ const length=THREE.MathUtils.lerp(closedLength,.12,p),angle=-Math.PI*p;
  const ta=new THREE.Vector2(-Math.cos(angle)*length,Math.sin(angle)*length),tb=new THREE.Vector2(length,0);
  const t2=t*t,t3=t2*t;
  const out=a.multiplyScalar(2*t3-3*t2+1).addScaledVector(ta,t3-2*t2+t).addScaledVector(b,-2*t3+3*t2).addScaledVector(tb,t3-t2);
@@ -35,31 +32,27 @@ function spinePoint(t,p,lift=0,tilt=0){
  out.y-=.015*p*Math.sin(Math.PI*t)**2;
  return out;
 }
-function outerPoint(row,p,lift=0,tilt=0){
+function outerPoint(row,p,amount=0){
  if(row.part==='front'){
   const x=bodyX(row.t)+(row.cap?BEVEL*Math.sin(row.cap):0);
-  return frontPoint(x,.25-.048*groove(x),p,lift,tilt);
+  return frontPoint(x,.25-.030*groove(x),p,amount);
  }
- if(row.part==='spine')return spinePoint(row.t,p,lift,tilt);
+ if(row.part==='spine')return spinePoint(row.t,p,amount);
  const x=bodyX(1-row.t)+(row.cap?BEVEL*Math.sin(row.cap):0);
  return new THREE.Vector2(x+BACK_COVER_TRAVEL*p,-.35+.048*groove(x));
 }
-function boardThickness(x,front=true){return .035+((front?FRONT_BOARD_THICKNESS:BACK_BOARD_THICKNESS)-.035)*smooth((x-JOINT)/.30);}
-export function closedInnerDepth(x,front=true){return front?.25-.048*groove(x)-boardThickness(x,true):-.35+.048*groove(x)+boardThickness(x,false);}
-export function frontEndpaperPoint(x,p,lift=0,depth=0,tilt=0){
- const slope=x>GROOVE_START&&x<GROOVE_END?-.048*Math.PI/JOINT_WIDTH*Math.sin(2*Math.PI*(x-GROOVE_START)/JOINT_WIDTH):0;
- const normal=new THREE.Vector2(-slope,1).normalize(),distance=boardThickness(x,true)+.002-depth;
- return frontPoint(x-normal.x*distance,.25-.048*groove(x)-normal.y*distance,p,lift,tilt);
-}
+function boardThickness(x,front=true){return front?FRONT_BOARD_THICKNESS-.030*groove(x):.035+(BACK_BOARD_THICKNESS-.035)*smooth((x-JOINT)/.30);}
+export function closedInnerDepth(x,front=true){return front?FRONT_INNER_Z:-.35+.048*groove(x)+boardThickness(x,false);}
+export function frontEndpaperPoint(x,p,amount=0,depth=0){return frontPoint(x,FRONT_INNER_Z+depth,p,amount);}
 function thickness(row){
  if(row.part==='spine')return .035;
  const x=row.part==='front'?bodyX(row.t):bodyX(1-row.t);
  return boardThickness(x,row.part==='front');
 }
-function outward(row,p,lift=0,tilt=0){
- if(row.cap)return row.part==='front'?new THREE.Vector2(-Math.sin((-Math.PI+tilt)*p),Math.cos((-Math.PI+tilt)*p)):new THREE.Vector2(0,-1);
+function outward(row,p,amount=0){
+ if(row.cap)return row.part==='front'?new THREE.Vector2(-Math.sin(-Math.PI*p),Math.cos(-Math.PI*p)):new THREE.Vector2(0,-1);
  const eps=.00001,t0=Math.max(0,row.t-eps),t1=Math.min(1,row.t+eps);
- const tangent=outerPoint({...row,t:t1},p,lift,tilt).sub(outerPoint({...row,t:t0},p,lift,tilt)).normalize();
+ const tangent=outerPoint({...row,t:t1},p,amount).sub(outerPoint({...row,t:t0},p,amount)).normalize();
  return new THREE.Vector2(tangent.y,-tangent.x);
 }
 // Points around a rounded rectangular cross-section; matching first/last
@@ -97,12 +90,23 @@ function rowsForCase(){
  const nearest=(part,x)=>rows.filter(r=>r.part===part&&!r.cap).reduce((a,b)=>Math.abs((part==='front'?bodyX(a.t):bodyX(1-a.t))-x)<Math.abs((part==='front'?bodyX(b.t):bodyX(1-b.t))-x)?a:b);
  return {rows,total,joins:[nearest('front',GROOVE_START+JOINT_WIDTH/2).u,nearest('back',GROOVE_START+JOINT_WIDTH/2).u]};
 }
+// The lining shares the case's real section rows. Its material thickness is
+// placed inside these walls, rather than on a separate signature-root curve.
+const liningRows=rowsForCase().rows.filter(row=>!row.cap&&(row.part==='spine'||(row.part==='front'?bodyX(row.t):bodyX(1-row.t))<=JOINT+.025));
+export function caseLiningProfile(progress,amount=0){
+ const p=THREE.MathUtils.clamp(progress,0,1);
+ return liningRows.map(row=>{
+  const wall=thickness(row),normal=row.part==='front'?new THREE.Vector2(-Math.sin(Math.PI*p),Math.cos(Math.PI*p)):outward(row,p,amount);
+  const inner=row.part==='front'?frontPoint(bodyX(row.t),FRONT_INNER_Z,p,amount):outerPoint(row,p,amount).addScaledVector(normal,-wall);
+  return {x:inner.x,z:inner.y,nx:normal.x,nz:normal.y,wall,part:row.part,t:row.t};
+ });
+}
 export class ClothCase {
  constructor(){
   const {rows,total,joins}=rowsForCase();this.rows=rows;this.length=total;this.joins=joins;
   this.ringSize=ring(.07,HALF_HEIGHT,BEVEL).length;
   const count=rows.length*this.ringSize+2;
-  const positions=new Float32Array(count*3),uv=new Float32Array(count*2),clothUv=new Float32Array(count*2),indices=[];
+  const positions=new Float32Array(count*3),uv=new Float32Array(count*2),clothUv=new Float32Array(count*2),innerLining=new Float32Array(count),innerEndpaper=new Float32Array(count),indices=[];
   rows.forEach((row,i)=>{for(let j=0;j<this.ringSize;j++){const k=i*this.ringSize+j;uv[k*2]=row.u;clothUv[k*2]=row.u*total;}});
   for(let i=0;i<rows.length-1;i++)for(let j=0;j<this.ringSize-1;j++){
    const a=i*this.ringSize+j,b=a+this.ringSize;
@@ -111,14 +115,14 @@ export class ClothCase {
   const firstCenter=count-2,lastCenter=count-1,last=(rows.length-1)*this.ringSize;
   for(let j=0;j<this.ringSize-1;j++){indices.push(firstCenter,j+1,j);indices.push(lastCenter,last+j,last+j+1);}
   uv[firstCenter*2]=0;uv[firstCenter*2+1]=.5;uv[lastCenter*2]=1;uv[lastCenter*2+1]=.5;
-  const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.BufferAttribute(positions,3).setUsage(THREE.DynamicDrawUsage));geometry.setAttribute('uv',new THREE.BufferAttribute(uv,2));geometry.setAttribute('clothUv',new THREE.BufferAttribute(clothUv,2));geometry.setIndex(indices);
+  const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.BufferAttribute(positions,3).setUsage(THREE.DynamicDrawUsage));geometry.setAttribute('uv',new THREE.BufferAttribute(uv,2));geometry.setAttribute('clothUv',new THREE.BufferAttribute(clothUv,2));geometry.setAttribute('innerLining',new THREE.BufferAttribute(innerLining,1));geometry.setAttribute('innerEndpaper',new THREE.BufferAttribute(innerEndpaper,1));geometry.setIndex(indices);
   this.geometry=geometry;
   this.readingCrop={value:0};
   this.material=new THREE.MeshStandardMaterial({color:0xbed3db,roughness:.97,metalness:0});
   this.material.onBeforeCompile=shader=>{
    shader.uniforms.readingCrop=this.readingCrop;
-   shader.vertexShader=shader.vertexShader.replace('#include <common>','#include <common>\nattribute vec2 clothUv;varying vec2 vCloth;varying float clothX;').replace('#include <begin_vertex>','#include <begin_vertex>\nvCloth=clothUv;clothX=position.x;');
-   shader.fragmentShader=shader.fragmentShader.replace('#include <common>','#include <common>\nvarying vec2 vCloth;varying float clothX;uniform float readingCrop;').replace('#include <clipping_planes_fragment>','#include <clipping_planes_fragment>\nif(readingCrop>.5&&clothX<-.045)discard;').replace('#include <normal_fragment_maps>',`#include <normal_fragment_maps>
+   shader.vertexShader=shader.vertexShader.replace('#include <common>','#include <common>\nattribute vec2 clothUv;attribute float innerLining;attribute float innerEndpaper;varying float vInnerLining;varying float vInnerEndpaper;varying vec2 vCloth;varying float clothX;').replace('#include <begin_vertex>','#include <begin_vertex>\nvCloth=clothUv;clothX=position.x;vInnerLining=innerLining;vInnerEndpaper=innerEndpaper;');
+   shader.fragmentShader=shader.fragmentShader.replace('#include <common>','#include <common>\nvarying float vInnerEndpaper;varying float vInnerLining;varying vec2 vCloth;varying float clothX;uniform float readingCrop;').replace('#include <clipping_planes_fragment>','#include <clipping_planes_fragment>\nif(readingCrop>.5&&clothX<-.045)discard;').replace('#include <color_fragment>','#include <color_fragment>\ndiffuseColor.rgb=mix(diffuseColor.rgb,vec3(.009134,.025187,.082283),vInnerLining);diffuseColor.rgb=mix(diffuseColor.rgb,vec3(.0075,.0075,.0086),vInnerEndpaper);').replace('#include <normal_fragment_maps>',`#include <normal_fragment_maps>
     vec2 thread=vec2(vCloth.x*880.,vCloth.y*10053.09649);
     float coverage=1.-smoothstep(.5,2.,max(fwidth(thread.x),fwidth(thread.y)));
     if(coverage>.001){
@@ -130,21 +134,22 @@ export class ClothCase {
     normal=normalize(max(abs(determinant),1e-8)*normal-gradient);
     }`);
   };
-  this.material.customProgramCacheKey=()=> 'continuous-cotton-case-v1';
+  this.material.customProgramCacheKey=()=> 'continuous-cotton-case-inner-binding-v3';
   this.mesh=new THREE.Mesh(geometry,this.material);this.mesh.name='continuous-cloth-case';this.mesh.userData.clothContinuous=true;
   this.update(0);
  }
  // Mobile reading follows one leaf. This crops its offscreen neighbour only
  // in the reading viewport; inspection always retains the complete skin.
  setReadingLeaf(singleLeaf){this.readingCrop.value=singleLeaf?1:0;}
- update(progress,lift=0,tilt=0){
+ update(progress,amount=0){
   const p=THREE.MathUtils.clamp(progress,0,1);
-  if(this.progress===p&&this.frontLift===lift&&this.frontTilt===tilt&&this.geometry.boundingBox)return;
-  this.progress=p;this.frontLift=lift;this.frontTilt=tilt;
-  const position=this.geometry.attributes.position,uv=this.geometry.attributes.uv,clothUv=this.geometry.attributes.clothUv;
+  if(this.progress===p&&this.stackAmount===amount&&this.geometry.boundingBox)return;
+  this.progress=p;this.stackAmount=amount;
+  const position=this.geometry.attributes.position,uv=this.geometry.attributes.uv,clothUv=this.geometry.attributes.clothUv,innerLining=this.geometry.attributes.innerLining,innerEndpaper=this.geometry.attributes.innerEndpaper;
   this.rows.forEach((row,i)=>{
-   const outer=outerPoint(row,p,lift,tilt),normal=outward(row,p,lift,tilt),half=thickness(row)/2;
-   const center=outer.clone().addScaledVector(normal,-half);
+   const outer=outerPoint(row,p,amount),normal=outward(row,p,amount),half=thickness(row)/2;
+   const frontX=bodyX(row.t)+(row.cap?BEVEL*Math.sin(row.cap):0),frontZ=(.25-.030*groove(frontX)+FRONT_INNER_Z)/2;
+   const center=row.part==='front'?frontPoint(frontX,frontZ,p,amount):outer.clone().addScaledVector(normal,-half);
    if(!row.section){
     const shrink=row.cap?BEVEL*(1-Math.cos(row.cap)):0,radius=Math.min(BEVEL,half*.45)*(row.cap?Math.cos(row.cap):1);
     row.section=ring(half-shrink,HALF_HEIGHT-shrink,radius);
@@ -154,8 +159,17 @@ export class ClothCase {
    let perimeter=0;
    section.forEach(([n,y],j)=>{
     const k=i*this.ringSize+j;
-    position.setXYZ(k,center.x+normal.x*n,y,center.y+normal.y*n);
+    if(row.part==='front'){const q=frontPoint(frontX,frontZ+n,p,amount);position.setXYZ(k,q.x,y,q.y);}else position.setXYZ(k,center.x+normal.x*n,y,center.y+normal.y*n);
     if(this.initialized)return;
+    // Intrinsic inner-face identity: outer cloth and rounded turn-ins keep
+    // their photographic dyes. The navy never depends on viewing direction.
+    const jointDistance=row.part==='spine'?0:row.part==='front'?bodyX(row.t)-JOINT:bodyX(1-row.t)-JOINT;
+    const innerFace=Math.abs(n+half)<1e-8;
+    innerLining.setX(k,innerFace&&!row.cap?1-smooth(jointDistance/.055):0);
+    // The black endpaper's bound turn-in continues across the inside joint.
+    // It belongs to the existing case surface, below both printed roots;
+    // this prevents flower-cloth samples showing through their finite seam.
+    innerEndpaper.setX(k,innerFace&&row.part==='front'&&!row.cap?smooth(jointDistance/.025)*(1-smooth((jointDistance-.11)/.05)):0);
     if(j)perimeter+=Math.hypot(n-section[j-1][0],y-section[j-1][1]);
     // Unroll the small turn-ins as well as the broad faces. Projecting every
     // edge onto one image column would stretch the cloth into coloured stripes.
@@ -167,7 +181,7 @@ export class ClothCase {
    if(i===0||i===this.rows.length-1){const k=position.count-(i===0?2:1);position.setXYZ(k,center.x,0,center.y);if(!this.initialized)uv.setX(k,row.u+half*(row.part==='front'?-1:1)/this.length);}
   });
   position.needsUpdate=true;
-  if(!this.initialized){uv.needsUpdate=true;clothUv.needsUpdate=true;this.initialized=true;}
+  if(!this.initialized){uv.needsUpdate=true;clothUv.needsUpdate=true;innerLining.needsUpdate=true;innerEndpaper.needsUpdate=true;this.initialized=true;}
   this.geometry.computeVertexNormals();
   const normals=this.geometry.attributes.normal;
   for(let i=0;i<this.rows.length;i++){

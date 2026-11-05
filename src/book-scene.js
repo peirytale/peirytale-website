@@ -1,8 +1,12 @@
 import * as THREE from 'three';
+import {PageFilmCompositor} from './page-film/compositor.js';
+import {decodePageFilm,completionShader} from './page-film/shader.js';
+import {completionEffect} from './content/page-film.js';
 import {pageTypography,pageTextRows,pageStackAmount,pageHint} from './content/book.js';
 import {ClothCase,FRONT_BOARD_THICKNESS} from './cloth-case.js';
 import {createBookMarker,markerAttachment,createSpineBacking,updateSpineBacking} from './book-marker.js';
-import {createLeafGeometry,updateLeafGeometry,conformCoverEndpaper,leftStackThickness,leftCoverLift,leftCoverTilt} from './page-geometry.js';
+import {createLeafGeometry,updateLeafGeometry,conformCoverEndpaper,leftStackThickness} from './page-geometry.js';
+import {rightSurfaceZ,PAPER_SURFACE_Z} from './binding-kinematics.js';
 import {PAGE_WIDTH,PAGE_HEIGHT,paperHingeX} from './book-dimensions.js';
 
 const smooth=p=>p*p*(3-2*p);
@@ -11,7 +15,8 @@ export class BookScene{
   this.canvas=canvas;this.dirty=true;this.opened=false;this.progress=0;this.chapter=0;this.quiet=false;this.leftStack=0;
   this.renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:false});
   this.renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));this.renderer.setClearColor(0xeeeae2);
-  this.renderer.shadowMap.enabled=true;this.renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+  this.filmMap={value:null};this.completionProgress={value:-1};this.canvas.dataset.completionEffect='none';this.supportsFilmCache=this.renderer.extensions.has('EXT_color_buffer_float');
+  this.renderer.shadowMap.autoUpdate=false;this.renderer.shadowMap.needsUpdate=true;this.renderer.shadowMap.enabled=true;this.renderer.shadowMap.type=THREE.PCFSoftShadowMap;
   this.scene=new THREE.Scene();this.camera=new THREE.OrthographicCamera(-5,5,4,-4,.1,100);this.camera.position.set(0,0,15);
   this.scene.add(new THREE.HemisphereLight(0xffffff,0xb6afa5,2.0));
   const sun=new THREE.DirectionalLight(0xfffaf2,2.4);sun.position.set(-4,5,10);sun.castShadow=true;sun.shadow.mapSize.set(1024,1024);Object.assign(sun.shadow.camera,{left:-7,right:7,top:6,bottom:-6,near:.1,far:25});sun.shadow.bias=-.0003;sun.shadow.normalBias=.015;sun.shadow.intensity=.35;this.scene.add(sun);this.sun=sun;
@@ -37,8 +42,8 @@ export class BookScene{
    const geometry=createLeafGeometry({thickness:side<0?.008:.36,block:side>0});updateLeafGeometry(geometry,0,side);
    const mesh=new THREE.Mesh(geometry,[top,back,this.edgeMaterial]);mesh.castShadow=true;mesh.receiveShadow=true;this.book.add(mesh);return mesh;
   });
-  // A narrow, continuous binding lining closes the gutter underneath both
-  // signatures. The paper roots overlap at x=0; no transparent overlay masks it.
+  // A narrow, continuous lining remains recessed under the finite-thickness
+  // hinge. No top-facing strip bridges or obscures the printed surfaces.
   this.blocks[0].material[1].map=black;this.spine=createSpineBacking();this.book.add(this.spine);
   this.sheets=Array.from({length:6},(_,i)=>{
    const material=[this.paperMaterial(blank),this.paperMaterial(blank,true),new THREE.MeshStandardMaterial({color:0xe9e1d1,roughness:1})];
@@ -47,8 +52,8 @@ export class BookScene{
   const markCanvas=document.createElement('canvas');markCanvas.width=1024;markCanvas.height=256;const ctx=markCanvas.getContext('2d');ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#fff';ctx.font='700 150px Georgia';ctx.fillText('Peiry Tale',512,128,860);const mark=new THREE.CanvasTexture(markCanvas);mark.colorSpace=THREE.SRGBColorSpace;
   this.ribbon=createBookMarker(mark);this.book.add(this.ribbon);
   this.canvas.dataset.binding='loaded';this.canvas.dataset.bindingGeometry='continuous-cloth';
-  document.addEventListener('visibilitychange',()=>{this.lastTick=performance.now();});this.resize=()=>this.fit();window.addEventListener('resize',this.resize);this.fit();this.pose(0);
-  this.ready=this.makeCover().finally(()=>onReady?.());
+  document.addEventListener('visibilitychange',()=>{this.lastTick=performance.now();});this.resize=()=>this.fit();window.addEventListener('resize',this.resize);this.fit();this.pose(0);this.setMotion('resting');
+  this.ready=this.makeCover().then(()=>this.renderer.compileAsync(this.scene,this.camera)).finally(()=>onReady?.());
   this.tick=this.tick.bind(this);this.frame=requestAnimationFrame(this.tick);
  }
  paperMaterial(map,verso=false){
@@ -57,14 +62,19 @@ export class BookScene{
   // exposed leaf; this soft contact occlusion follows the material root even
   // while turning, rather than drawing a line over the book viewport.
   const material=new THREE.MeshStandardMaterial({map,color:0xebebeb,roughness:.97,metalness:0});
+  const film={enabled:{value:0},transform:{value:new THREE.Vector2(.5,.5)}};material.userData.pageFilm=film;
   material.onBeforeCompile=shader=>{
+   Object.assign(shader.uniforms,{pageFilmMap:this.filmMap,pageFilmEnabled:film.enabled,pageFilmTransform:film.transform,completionProgress:this.completionProgress});
+   shader.vertexShader=shader.vertexShader.replace('#include <common>','#include <common>\nvarying vec2 filmUv;').replace('#include <begin_vertex>','#include <begin_vertex>\nfilmUv=uv;');
+   shader.fragmentShader=shader.fragmentShader.replace('#include <common>','#include <common>\nuniform sampler2D pageFilmMap;uniform float pageFilmEnabled;uniform vec2 pageFilmTransform;varying vec2 filmUv;\n'+decodePageFilm+completionShader).replace('#include <map_fragment>','#include <map_fragment>\nif(pageFilmEnabled>.5)diffuseColor.rgb*=pageFilmTransmission(texture2D(pageFilmMap,vec2(filmUv.x*pageFilmTransform.x+pageFilmTransform.y,filmUv.y)).rgb);');
+   shader.fragmentShader=shader.fragmentShader.replace('#include <opaque_fragment>',`if(pageFilmEnabled>.5)outgoingLight=castleCompletionColor(outgoingLight,vec2(filmUv.x*pageFilmTransform.x+pageFilmTransform.y,filmUv.y));\n#include <opaque_fragment>`);
    shader.vertexShader=shader.vertexShader.replace('#include <common>','#include <common>\nvarying float bindingDistance;').replace('#include <begin_vertex>',`#include <begin_vertex>\nbindingDistance=(${verso?'1.-uv.x':'uv.x'})*${PAGE_WIDTH.toFixed(8)};`);
    shader.fragmentShader=shader.fragmentShader.replace('#include <common>','#include <common>\nvarying float bindingDistance;').replace('#include <aomap_fragment>',`#include <aomap_fragment>
     float distanceFromBinding=max(bindingDistance,0.);
     float bindingOcclusion=.28*exp(-distanceFromBinding/.28)+.14*exp(-distanceFromBinding/.018);
     reflectedLight.indirectDiffuse*=1.-bindingOcclusion;`);
   };
-  material.customProgramCacheKey=()=>`bound-paper-v2-${verso?'verso':'front'}`;
+  material.customProgramCacheKey=()=>`bound-paper-film-v1-${verso?'verso':'front'}`;
   return material;
  }
  paperCanvas(dark){
@@ -79,6 +89,8 @@ export class BookScene{
   }
   c.putImageData(image,0,0);return canvas;
  }
+ setFilmLayer(material,id,side,verso=false){const f=material.userData.pageFilm;if(!f)return;f.enabled.value=this.pageFilm&&id==='castle'?1:0;f.transform.value.set(verso?.5:side*.5,verso?0:.5);}
+ attachPageFilm(film){this.pageFilm=film;this.filmMap.value=film.texture;this.blocks.forEach((b,i)=>this.setFilmLayer(b.material[0],this.page?.id,i?1:-1));this.filmCompositor?.invalidate();this.dirty=true;}
  texture(stock,page,lang='zh-TW'){
   const key=page?.heading?`${lang}/${page.id}/${this.mobile?'mobile':'desktop'}`:stock;if(this.textureCache.has(key))return this.textureCache.get(key);
   const canvas=document.createElement('canvas');canvas.width=1024;canvas.height=1408;const c=canvas.getContext('2d');c.drawImage(stock==='black'?this.black:this.white,0,0);
@@ -100,7 +112,7 @@ export class BookScene{
   }catch(error){this.canvas.dataset.outerCloth='unavailable';console.warn('Book cloth unavailable.',error.message);}
  }
  fit(){
-  const w=this.canvas.clientWidth,h=this.canvas.clientHeight;if(!w||!h)return;
+  this.filmCompositor?.invalidate();const w=this.canvas.clientWidth,h=this.canvas.clientHeight;if(!w||!h)return;
   if(this.width!==w||this.height!==h){this.renderer.setSize(w,h,false);this.width=w;this.height=h;}const wasMobile=this.mobile;this.mobile=w<700;
   // Retain both leaves on mobile: the specified black/white progression and
   // complete spine must remain visible at every width.
@@ -110,38 +122,34 @@ export class BookScene{
   this.canvas.dispatchEvent(new CustomEvent('bookresize',{detail:this.layout}));if(wasMobile!==undefined&&wasMobile!==this.mobile&&this.page&&!this.animation)this.setSpread(this.page,this.chapter,this.lang);this.dirty=true;
  }
  pose(p){
-  this.progress=p;const thickness=leftStackThickness(this.leftStack),coverLift=p*leftCoverLift(this.leftStack);this.blocks[0].geometry.userData.thickness=thickness;updateLeafGeometry(this.blocks[0].geometry,0,-1);const coverTilt=leftCoverTilt(this.leftStack),rootLift=(.09-FRONT_BOARD_THICKNESS)*(1-p);this.clothCase.update(p,coverLift,coverTilt);this.clothCase.setReadingLeaf(false);
-  // The first opening lifts only the thin board and its black endpaper.
-  // Signatures stay on the right until actual leaves land on the left.
-  const hinge=paperHingeX(p);
-  this.blocks[0].position.set(hinge,0,.20*(1-p)*(1-this.leftStack));this.blocks[0].rotation.y=Math.PI*(1-p);
-  this.blocks[1].position.set(hinge,0,0);
-  Object.assign(this.blocks[1].geometry.userData,{boundToRear:true,rearProgress:p});updateLeafGeometry(this.blocks[1].geometry,0,1,rootLift);
-  const left=this.blocks[0];conformCoverEndpaper(left.geometry,p,{thickness,coverLift,coverTilt,rootLift});
-  left.position.set(0,0,0);left.rotation.set(0,0,0);
-  updateSpineBacking(this.spine,p,{coverLift,coverTilt,rootLift});
+  this.filmCompositor?.invalidate();this.renderer.shadowMap.needsUpdate=true;this.progress=p;const thickness=leftStackThickness(this.leftStack),rootLift=rightSurfaceZ(p,this.leftStack)-PAPER_SURFACE_Z;
+  this.blocks[0].geometry.userData.thickness=thickness;updateLeafGeometry(this.blocks[0].geometry,0,-1);conformCoverEndpaper(this.blocks[0].geometry,p,{thickness});this.blocks[0].position.set(0,0,0);this.blocks[0].rotation.set(0,0,0);
+  this.clothCase.update(p,this.leftStack);this.clothCase.setReadingLeaf(false);
+  this.blocks[1].position.set(paperHingeX(p),0,0);Object.assign(this.blocks[1].geometry.userData,{boundToRear:true,rearProgress:p});updateLeafGeometry(this.blocks[1].geometry,0,1,rootLift);
+  updateSpineBacking(this.spine,p,{amount:this.leftStack});
   this.contactShadow.scale.x=.5+.5*p;this.dirty=true;this.canvas.dataset.openingProgress=p.toFixed(4);this.canvas.dataset.leftStack=this.leftStack.toFixed(4);this.canvas.dataset.leftThickness=thickness.toFixed(4);this.fit();
  }
  setStack(amount){if(Math.abs(this.leftStack-amount)<1e-6)return;this.leftStack=amount;this.pose(this.progress);}
  setSpread(page,index=0,lang='zh-TW'){
   const hintEnabled=Boolean(this.hint);if(hintEnabled)this.setPageHint(false);
-  this.page=page;this.chapter=index;this.lang=lang;this.setStack(pageStackAmount(page));this.blocks[0].material[1].map=this.texture(page.left);this.blocks[0].material[1].needsUpdate=true;this.blocks[0].material[2]=page.left==='black'?this.blackEdgeMaterial:this.edgeMaterial;
-  this.blocks.forEach((mesh,i)=>{mesh.material[0].map=this.texture(i?page.right:page.left,i?page:null,lang);mesh.material[0].needsUpdate=true;});
+  this.filmCompositor?.invalidate();this.page=page;this.chapter=index;this.lang=lang;this.setStack(pageStackAmount(page));this.blocks[0].material[1].map=this.texture(page.left);this.blocks[0].material[1].needsUpdate=true;this.blocks[0].material[2]=page.left==='black'?this.blackEdgeMaterial:this.edgeMaterial;
+  this.blocks.forEach((mesh,i)=>{mesh.material[0].map=this.texture(i?page.right:page.left,i?page:null,lang);mesh.material[0].needsUpdate=true;this.setFilmLayer(mesh.material[0],page.id,i?1:-1);});
   this.canvas.dataset.page=page.id;this.canvas.dataset.leftStock=page.left;this.canvas.dataset.rightStock=page.right;this.dirty=true;
   if(hintEnabled)this.setPageHint(true);
  }
  setPageHint(enabled){
   if(Boolean(this.hint)===enabled)return;
   if(!enabled){
-   this.pendingCurl={page:this.page?.id,strength:this.hintStrength||0};this.hint=null;this.hintStrength=0;
-   this.sheets[0].visible=false;this.canvas.dataset.pageHint='off';this.canvas.dataset.curlStrength='0.0000';this.dirty=true;return;
+   this.hint=null;this.hintStrength=0;this.sheets[0].visible=false;
+   if(this.page){this.blocks[1].material[0].map=this.texture(this.page.right,this.page,this.lang);this.blocks[1].material[0].needsUpdate=true;}
+   this.canvas.dataset.pageHint='off';this.canvas.dataset.curlStrength='0.0000';this.dirty=true;return;
   }
-  this.pendingCurl=null;this.hint={elapsed:0};this.hintStrength=0;this.canvas.dataset.pageHint='waiting';this.canvas.dataset.curlStrength='0.0000';
-  const sheet=this.sheets[0];sheet.material[0].map=this.texture(this.page.right,this.page,this.lang);sheet.material[1].map=this.texture('white');sheet.material[0].needsUpdate=sheet.material[1].needsUpdate=true;
-  updateLeafGeometry(sheet.geometry,0,1,.009);sheet.visible=true;this.dirty=true;
+  this.hint={elapsed:0,started:null};this.hintStrength=0;this.canvas.dataset.pageHint='waiting';this.canvas.dataset.curlStrength='0.0000';
+  const sheet=this.sheets[0];sheet.material[0].map=this.texture(this.page.right,this.page,this.lang);sheet.material[1].map=this.texture('white');sheet.material[0].needsUpdate=sheet.material[1].needsUpdate=true;this.setFilmLayer(sheet.material[0],this.page.id,1);this.setFilmLayer(sheet.material[1],null,-1,true);
+  updateLeafGeometry(sheet.geometry,0,1,.009);sheet.visible=false;this.dirty=true;
  }
  updatePageHint(dt){
-  const hint=this.hint;if(!hint||this.paused||document.hidden)return;
+  const hint=this.hint;if(!hint||hint.started===null||this.animation||this.paused||document.hidden)return;
   hint.elapsed+=dt;const elapsed=hint.elapsed-pageHint.delay;
   let strength=0,state='waiting';
   if(elapsed>=0){
@@ -153,7 +161,7 @@ export class BookScene{
    }
   }
   this.canvas.dataset.pageHint=state;this.canvas.dataset.hintElapsed=hint.elapsed.toFixed(1);
-  if(Math.abs(strength-this.hintStrength)>1e-6){this.hintStrength=strength;updateLeafGeometry(this.sheets[0].geometry,0,1,.009,strength);this.canvas.dataset.curlStrength=strength.toFixed(4);this.dirty=true;}
+  if(Math.abs(strength-this.hintStrength)>1e-6){this.hintStrength=strength;const sheet=this.sheets[0];sheet.visible=strength>0;this.blocks[1].material[0].map=strength>0?this.texture('white'):this.texture(this.page.right,this.page,this.lang);this.blocks[1].material[0].needsUpdate=true;updateLeafGeometry(sheet.geometry,0,1,.009,strength);this.canvas.dataset.curlStrength=strength.toFixed(4);this.dirty=true;}
  }
  animate(duration,update,{linear=false,paint=true}={}){
   if(this.animation)throw Error('Book motion must be sequential');
@@ -165,39 +173,39 @@ export class BookScene{
   if(this.animation){const a=this.animation;this.animation=null;a.update(1);a.resolve(false);this.dirty=true;}
   await Promise.resolve();await Promise.resolve();
  }
+ setMotion(state){if(state!=='open')this.stopCompletionSparkle();this.bindingMotion=state;this.canvas.dataset.bindingMotion=state;}
  async open(quiet=false,duration=1800){
-  await this.ready;this.opened=true;this.fit();this.canvas.dataset.bindingMotion='opening';
+  await this.ready;this.opened=true;this.fit();this.setMotion('opening');
   const q=this.bookMount.quaternion.clone(),start=this.book.rotation.clone();
   await this.animate(quiet?0:duration,p=>{
    this.bookMount.quaternion.slerpQuaternions(q,new THREE.Quaternion(),Math.min(1,p*4));this.bookMount.position.z*=1-p;
    this.pose(p);this.book.rotation.set(start.x*(1-p)-.07*p,start.y*(1-p),start.z*(1-p));this.book.scale.setScalar(.84+.16*p);
    this.book.position.set(0,.45*p+.08*Math.sin(Math.PI*p),.12*Math.sin(Math.PI*p));
   });
-  this.pose(1);this.bookMount.quaternion.identity();this.bookMount.position.set(0,0,0);this.canvas.dataset.bindingMotion='open';this.dirty=true;
+  this.pose(1);this.bookMount.quaternion.identity();this.bookMount.position.set(0,0,0);this.setMotion('open');this.dirty=true;
  }
  async close(quiet=false){
-  await this.finishMotion();this.canvas.dataset.bindingMotion='closing';const start=this.book.rotation.clone();
+  await this.finishMotion();this.setMotion('closing');const start=this.book.rotation.clone();
   await this.animate(quiet?0:1400,p=>{this.pose(1-p);this.book.rotation.set(THREE.MathUtils.lerp(start.x,this.restRotation.x,p),this.restRotation.y*p,this.restRotation.z*p);this.book.scale.setScalar(1-.16*p);this.book.position.y=.45*(1-p);});
-  this.opened=false;this.fit();this.pose(0);this.canvas.dataset.bindingMotion='resting';
+  this.opened=false;this.fit();this.pose(0);this.setMotion('resting');
  }
  async turn(next,index,lang,{duration=1050,quiet=false}={}){
   const previous=this.page,direction=index>=this.chapter?1:-1;
-  const curl=direction>0&&this.pendingCurl?.page===previous.id?this.pendingCurl.strength:0;this.pendingCurl=null;
   if(quiet){this.setSpread(next,index,lang);return;}
   const sheet=this.sheets[0],forward=direction>0,startStack=this.leftStack,endStack=pageStackAmount(next);
   sheet.material[0].map=this.texture(forward?previous.right:next.right,forward?previous:next,lang);
   sheet.material[1].map=this.texture(forward?next.left:previous.left,null,lang);
-  sheet.material[0].needsUpdate=sheet.material[1].needsUpdate=true;
+  sheet.material[0].needsUpdate=sheet.material[1].needsUpdate=true;this.setFilmLayer(sheet.material[0],(forward?previous:next).id,1);this.setFilmLayer(sheet.material[1],(forward?next:previous).id,-1,true);
   // Only the revealed underneath leaf changes. The departing page remains
   // the same physical, textured shell until it lands on the opposite stack.
   this.blocks[forward?1:0].material[0].map=this.texture(forward?next.right:next.left,forward?next:null,lang);
-  this.blocks[forward?1:0].material[0].needsUpdate=true;
-  sheet.visible=true;this.canvas.dataset.bindingMotion='turning';
-  await this.animate(duration,p=>{this.setStack(THREE.MathUtils.lerp(startStack,endStack,p));updateLeafGeometry(sheet.geometry,forward?p:1-p,1,.009,curl*(1-smooth(Math.min(1,p/.2))));this.canvas.dataset.turnProgress=p.toFixed(4);});
-  this.setSpread(next,index,lang);sheet.visible=false;this.canvas.dataset.bindingMotion='open';this.dirty=true;
+  this.blocks[forward?1:0].material[0].needsUpdate=true;this.setFilmLayer(this.blocks[forward?1:0].material[0],next.id,forward?1:-1);
+  sheet.visible=true;this.setMotion('turning');
+  await this.animate(duration,p=>{this.setStack(THREE.MathUtils.lerp(startStack,endStack,p));updateLeafGeometry(sheet.geometry,forward?p:1-p,1,.009,0);this.canvas.dataset.turnProgress=p.toFixed(4);});
+  this.setSpread(next,index,lang);sheet.visible=false;this.setMotion('open');this.dirty=true;
  }
  async riffle(next,index,lang,duration=2000){
-  const white=this.texture('white');this.canvas.dataset.bindingMotion='riffling';
+  const white=this.texture('white');this.setMotion('riffling');
   for(const sheet of this.sheets){sheet.material[0].map=white;sheet.material[1].map=white;sheet.material[0].needsUpdate=sheet.material[1].needsUpdate=true;}
   const leafTime=.78,step=(2-leafTime)/5;
   await this.animate(duration,p=>{
@@ -211,7 +219,7 @@ export class BookScene{
    if(time>=step*5){this.blocks[1].material[0].map=this.texture('white',next,lang);this.blocks[1].material[0].needsUpdate=true;}
    this.canvas.dataset.turnProgress=p.toFixed(4);
   },{linear:true});
-  for(const sheet of this.sheets)sheet.visible=false;this.setSpread(next,index,lang);this.canvas.dataset.bindingMotion='open';this.dirty=true;
+  for(const sheet of this.sheets)sheet.visible=false;this.setSpread(next,index,lang);this.setMotion('open');this.dirty=true;
  }
  rotateInspection(dx,dy){
   if(this.opened)return;const distance=Math.hypot(dx,dy);if(!distance)return;
@@ -220,11 +228,29 @@ export class BookScene{
  }
  resetInspection(){this.bookMount.quaternion.identity();this.bookMount.position.set(0,0,0);this.dirty=true;}
  setPaused(value){this.paused=value;this.lastTick=performance.now();}
+ startCompletionSparkle(){
+  if(this.completionPlayed||this.page?.id!=='castle')return;this.completionPlayed=true;this.completion={elapsed:0,started:false};this.completionProgress.value=0;this.canvas.dataset.completionEffect='active';this.dirty=true;
+ }
+ stopCompletionSparkle(){
+  if(!this.completion)return;this.completion=null;this.completionProgress.value=-1;this.canvas.dataset.completionEffect='done';this.dirty=true;
+ }
+ updateCompletionSparkle(dt){
+  const effect=this.completion;if(!effect||document.hidden||this.paused||this.animation)return;
+  if(effect.started)effect.elapsed+=dt;else effect.started=true;
+  if(effect.elapsed>=completionEffect.duration){this.stopCompletionSparkle();return;}
+  this.completionProgress.value=effect.elapsed/completionEffect.duration;this.dirty=true;
+ }
+ canCachePageFilm(){
+  // animate() resolves before turn() commits its spread and hides its leaf.
+  // A finished animation clock alone must never enable the paper UV cache.
+  return this.supportsFilmCache&&this.pageFilm&&this.page?.id==='castle'&&this.opened&&this.progress===1&&this.bindingMotion==='open'&&!this.animation&&!this.hint&&!this.sheets.some(s=>s.visible);
+ }
  tick(now){
   const dt=Math.max(0,now-(this.lastTick??now));this.lastTick=now;
+  if(this.animation||this.hint)this.renderer.shadowMap.needsUpdate=true;
   if(this.animation&&!this.paused&&!document.hidden){const a=this.animation;a.elapsed+=Math.min(dt,Math.max(0,now-a.started));const p=a.duration?Math.min(1,a.elapsed/a.duration):1;a.update(a.linear?p:smooth(p));if(a.paint)this.dirty=true;if(p===1){this.animation=null;a.resolve(true);}}
-  this.updatePageHint(dt);
-  if(this.dirty){this.renderer.render(this.scene,this.camera);this.canvas.dataset.drawCalls=String(this.renderer.info.render.calls);this.canvas.dataset.triangles=String(this.renderer.info.render.triangles);this.canvas.dataset.textures=String(this.renderer.info.memory.textures);this.dirty=false;this.canvas.dataset.renderCount=String((Number(this.canvas.dataset.renderCount)||0)+1);}
+  this.updatePageHint(dt);this.updateCompletionSparkle(dt);if(this.pageFilm?.tick())this.dirty=true;
+  if(this.dirty){if(this.canCachePageFilm()){this.canvas.dataset.renderPath='film-cache';this.filmCompositor??=new PageFilmCompositor(this.renderer,this.blocks,{background:[this.table,this.contactShadow,this.ribbon],foreground:this.book.children.filter(o=>o!==this.ribbon),completionProgress:this.completionProgress});this.filmCompositor.render(this.scene,this.camera,this.filmMap.value);}else{this.canvas.dataset.renderPath='physical';this.renderer.render(this.scene,this.camera);}this.canvas.dataset.drawCalls=String(this.renderer.info.render.calls);this.canvas.dataset.triangles=String(this.renderer.info.render.triangles);this.canvas.dataset.textures=String(this.renderer.info.memory.textures);this.dirty=false;this.canvas.dataset.renderCount=String((Number(this.canvas.dataset.renderCount)||0)+1);if(this.hint&&this.hint.started===null&&!this.animation)this.hint.started=now;}
   this.frame=requestAnimationFrame(this.tick);
  }
 }
