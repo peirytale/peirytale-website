@@ -39,3 +39,18 @@ html[data-renderer=fallback] .open-book{top:calc(50% + min(36.3vw,230.36px) + 12
 
 .wordmark{flex-shrink:0}.wordmark-name{white-space:nowrap}.music-icon{display:none;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}[data-action=music][aria-pressed=false] .music-waves,[data-action=music][aria-pressed=true] .music-muted{display:none}
 @media(max-width:699px){header nav button{white-space:nowrap;padding-inline:6px}header [data-action=music]{min-width:32px;padding-inline:7px}.music-icon{display:inline-block;vertical-align:middle}.music-label{display:none}}
+
+/* Cover invitations stay within the book viewport and leave dragging unobstructed. */
+.open-book{display:flex;flex-direction:column;align-items:center;gap:4px;padding:9px 18px 8px;border:0;border-radius:5px;color:#705e5d;transition:opacity .18s ease,color .25s ease,background-color .25s ease,text-shadow .25s ease}
+.open-main{border-bottom:1px solid #af9690;padding:0 4px 4px;font-size:15px;letter-spacing:.08em}
+.open-help{font:11px/1.4 Georgia,'Noto Serif TC',serif;letter-spacing:.04em;color:#897c70}
+.open-book:hover,.open-book:focus-visible{color:#986f70;background:#fff9ec66;text-shadow:0 0 12px #f7e4c5}
+.rotation-arrows{--book-height:min(58vw,660px);opacity:0;transition:opacity .18s ease;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(96vw,calc(var(--book-height)*.86 + 150px));display:flex;justify-content:space-between;align-items:center;pointer-events:none;z-index:3}
+.rotation-arrow{width:58px;height:66px;overflow:visible;fill:none;stroke:url(#arrow-ink);stroke-width:2.7;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(1px 2px 1px #806c6555);opacity:.8;animation:rotation-invite 3.2s ease-in-out infinite}
+.rotation-arrow.right{transform:scaleX(-1);animation-name:rotation-invite-right}
+@keyframes rotation-invite{0%,100%{translate:3px 0;opacity:.55}50%{translate:-3px 0;opacity:.95}}
+@keyframes rotation-invite-right{0%,100%{translate:-3px 0;opacity:.55}50%{translate:3px 0;opacity:.95}}
+html[data-cover-visible=true] .rotation-arrows{opacity:1}
+html[data-renderer=fallback] .rotation-arrows{display:none}
+@media(max-width:699px){.open-main{font-size:14px}.open-help{font-size:10px}.rotation-arrows{width:min(94vw,calc(var(--book-height)*.86 + 90px))}.rotation-arrow{width:40px;height:48px}}
+@media(max-height:500px){.open-book{gap:1px}.open-main{font-size:12px;padding-bottom:1px}.open-help{font-size:9px}.rotation-arrow{width:35px;height:40px}}

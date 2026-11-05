@@ -1,7 +1,9 @@
 import {audioSettings} from './content/audio.js';
 const asset=name=>`${import.meta.env.BASE_URL}assets/${name}`;
+function softenEdges(buffer){const n=Math.min(Math.round(buffer.sampleRate*audioSettings.theme.edgeFade),Math.floor(buffer.length/2));for(let channel=0;channel<buffer.numberOfChannels;channel++){const samples=buffer.getChannelData(channel);for(let i=0;i<n;i++){const gain=Math.sin(i/Math.max(1,n-1)*Math.PI/2)**2;samples[i]*=gain;samples[samples.length-1-i]*=gain;}}}
 // One gesture-unlocked graph owns both the theme and short pencil recording.
-// Decode lazily, retain one theme buffer, and create fresh sources on resume.
+// Prepare a small opening before interaction; decode the full theme after unlock.
+// Retain the buffers and create fresh sources on resume.
 export class Music{
  constructor(onChange=()=>{}){
   this.enabled=false;this.onChange=onChange;this.abort=new AbortController();this.themeOffset=0;this.fadingSources=new Set();
@@ -9,14 +11,14 @@ export class Music{
   listen('visibilitychange',()=>{if(this.enabled&&!document.hidden)this.context?.resume().then(()=>this.sync()).catch(()=>this.emit());this.sync();});
   const retry=event=>{if(event.target.closest?.('[data-action=music]'))return;if(this.enabled&&this.context?.state!=='running')this.context?.resume().then(()=>this.sync()).catch(()=>this.emit());};listen('pointerdown',retry);listen('keydown',retry);
  }
- get themeTime(){const time=this.themeOffset+(this.themeSource?(this.context.currentTime-this.themeStarted):0);return this.themeBuffer?time%this.themeBuffer.duration:0;}
+ get themeTime(){const time=this.themeOffset+(this.themeSource?(this.context.currentTime-this.themeStarted):0);const buffer=this.themeSource?.buffer||this.themeBuffer||this.introBuffer;return buffer?time%buffer.duration:0;}
  get state(){const themePlaying=Boolean(this.enabled&&this.themeSource&&!document.hidden&&this.context?.state==='running');return {enabled:this.enabled,playing:themePlaying||Boolean(this.source),themePlaying,pencilPlaying:Boolean(this.source),themeTime:this.themeTime,themeDuration:this.themeBuffer?.duration||0,themeAsset:this.themeAsset||'',context:this.context?.state||'idle'};}
  emit(){if(!this.disposed)this.onChange(this.state);}
  setEnabled(enabled){
   this.enabled=enabled;
   if(enabled){const Context=window.AudioContext||window.webkitAudioContext;if(Context){
    if(!this.context){this.context=new Context({sampleRate:48000});this.context.addEventListener('statechange',()=>{this.sync();this.emit();},{signal:this.abort.signal});}
-   this.context.resume().then(()=>{this.sync();this.emit();}).catch(()=>this.emit());
+   this.loadIntro();this.context.resume().then(()=>{this.sync();this.emit();}).catch(()=>this.emit());
   }}
   this.sync();this.emit();
  }
@@ -24,21 +26,28 @@ export class Music{
   for(const name of names){try{const response=await fetch(asset(name),{signal:this.abort.signal});if(!response.ok)throw Error('Audio unavailable');const buffer=await this.context.decodeAudioData(await response.arrayBuffer());if(this.disposed)return null;return {buffer,name};}catch(error){if(this.disposed||error.name==='AbortError')return null;}}
   return null;
  }
+ async loadIntro(){
+  if(this.introBuffer||this.introLoading||this.introUnavailable||!this.context||this.disposed)return;this.introLoading=true;
+  const result=await this.decode(audioSettings.theme.introSources);this.introLoading=false;if(this.disposed)return;
+  if(result){this.introBuffer=result.buffer;softenEdges(this.introBuffer);this.introAsset=result.name;}else this.introUnavailable=true;
+  this.sync();this.emit();
+ }
  async loadTheme(){
   if(this.themeBuffer||this.themeLoading||this.themeUnavailable||!this.context||this.disposed)return;this.themeLoading=true;
   const result=await this.decode(audioSettings.theme.sources);this.themeLoading=false;if(this.disposed)return;
   if(result){
-   this.themeBuffer=result.buffer;this.themeAsset=result.name;const n=Math.min(Math.round(this.themeBuffer.sampleRate*audioSettings.theme.edgeFade),Math.floor(this.themeBuffer.length/2));
-   for(let channel=0;channel<this.themeBuffer.numberOfChannels;channel++){const samples=this.themeBuffer.getChannelData(channel);for(let i=0;i<n;i++){const gain=Math.sin(i/Math.max(1,n-1)*Math.PI/2)**2;samples[i]*=gain;samples[samples.length-1-i]*=gain;}}
+   if(this.themeSource&&this.themeUsingIntro)this.stopTheme();this.themeBuffer=result.buffer;this.fullThemeAsset=result.name;softenEdges(this.themeBuffer);
   }else this.themeUnavailable=true;
   this.sync();this.emit();
  }
  syncTheme(){
   if(this.disposed)return;const context=this.context,wanted=this.enabled&&!document.hidden&&context?.state==='running';
   if(!wanted){this.stopTheme(document.hidden);return;}
-  if(!this.themeBuffer){this.loadTheme();return;}
+  if(!this.themeBuffer)this.loadTheme();
+  const buffer=this.themeBuffer||this.introBuffer;if(!buffer)return;
   if(!this.themeSource){
-   const source=context.createBufferSource(),gain=context.createGain();source.buffer=this.themeBuffer;source.loop=true;gain.gain.setValueAtTime(0,context.currentTime);source.connect(gain);gain.connect(context.destination);this.themeSource=source;this.themeGain=gain;this.themeStarted=context.currentTime;source.start(0,this.themeOffset%source.buffer.duration);
+   this.themeUsingIntro=buffer===this.introBuffer;this.themeAsset=this.themeUsingIntro?this.introAsset:this.fullThemeAsset;
+   const source=context.createBufferSource(),gain=context.createGain();source.buffer=buffer;source.loop=true;gain.gain.setValueAtTime(0,context.currentTime);source.connect(gain);gain.connect(context.destination);this.themeSource=source;this.themeGain=gain;this.themeStarted=context.currentTime;source.start(0,this.themeOffset%source.buffer.duration);
    source.onended=()=>{source.disconnect();gain.disconnect();this.fadingSources.delete(source);if(this.themeSource===source){this.themeSource=null;clearInterval(this.themeClock);this.emit();}this.suspendWhenIdle();};
    clearInterval(this.themeClock);this.themeClock=setInterval(()=>this.emit(),250);this.emit();
   }
@@ -71,5 +80,5 @@ export class Music{
  // Retire nodes on the audio clock before suspension. A wall-clock timer can
  // suspend WebKit before a scheduled stop has actually reached its audio time.
  suspendWhenIdle(){if(!this.disposed&&!this.enabled&&!this.source&&!this.themeSource&&!this.fadingSources.size&&this.context?.state==='running')this.context.suspend().catch(()=>{});}
- dispose(){this.disposed=true;this.abort.abort();clearInterval(this.themeClock);this.stopTheme(true);this.stopPencil(true);this.themeBuffer=null;this.buffer=null;this.fadingSources.clear();this.context?.close();}
+ dispose(){this.disposed=true;this.abort.abort();clearInterval(this.themeClock);this.stopTheme(true);this.stopPencil(true);this.themeBuffer=null;this.introBuffer=null;this.buffer=null;this.fadingSources.clear();this.context?.close();}
 }
