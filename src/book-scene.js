@@ -140,11 +140,11 @@ export class BookScene{
  setPageHint(enabled){
   if(Boolean(this.hint)===enabled)return;
   if(!enabled){
-   this.hint=null;this.hintStrength=0;this.sheets[0].visible=false;
+   this.pendingCurl={page:this.page?.id,strength:this.hintStrength||0};this.hint=null;this.hintStrength=0;this.sheets[0].visible=false;
    if(this.page){this.blocks[1].material[0].map=this.texture(this.page.right,this.page,this.lang);this.blocks[1].material[0].needsUpdate=true;}
    this.canvas.dataset.pageHint='off';this.canvas.dataset.curlStrength='0.0000';this.dirty=true;return;
   }
-  this.hint={elapsed:0,started:null};this.hintStrength=0;this.canvas.dataset.pageHint='waiting';this.canvas.dataset.curlStrength='0.0000';
+  this.pendingCurl=null;this.hint={elapsed:0,started:null};this.hintStrength=0;this.canvas.dataset.pageHint='waiting';this.canvas.dataset.curlStrength='0.0000';
   const sheet=this.sheets[0];sheet.material[0].map=this.texture(this.page.right,this.page,this.lang);sheet.material[1].map=this.texture('white');sheet.material[0].needsUpdate=sheet.material[1].needsUpdate=true;this.setFilmLayer(sheet.material[0],this.page.id,1);this.setFilmLayer(sheet.material[1],null,-1,true);
   updateLeafGeometry(sheet.geometry,0,1,.009);sheet.visible=false;this.dirty=true;
  }
@@ -191,6 +191,7 @@ export class BookScene{
  }
  async turn(next,index,lang,{duration=1050,quiet=false}={}){
   const previous=this.page,direction=index>=this.chapter?1:-1;
+  const curl=direction>0&&this.pendingCurl?.page===previous.id?this.pendingCurl.strength:0;this.pendingCurl=null;
   if(quiet){this.setSpread(next,index,lang);return;}
   const sheet=this.sheets[0],forward=direction>0,startStack=this.leftStack,endStack=pageStackAmount(next);
   sheet.material[0].map=this.texture(forward?previous.right:next.right,forward?previous:next,lang);
@@ -201,7 +202,7 @@ export class BookScene{
   this.blocks[forward?1:0].material[0].map=this.texture(forward?next.right:next.left,forward?next:null,lang);
   this.blocks[forward?1:0].material[0].needsUpdate=true;this.setFilmLayer(this.blocks[forward?1:0].material[0],next.id,forward?1:-1);
   sheet.visible=true;this.setMotion('turning');
-  await this.animate(duration,p=>{this.setStack(THREE.MathUtils.lerp(startStack,endStack,p));updateLeafGeometry(sheet.geometry,forward?p:1-p,1,.009,0);this.canvas.dataset.turnProgress=p.toFixed(4);});
+  await this.animate(duration,p=>{this.setStack(THREE.MathUtils.lerp(startStack,endStack,p));const turnCurl=curl*(1-smooth(Math.min(1,p/.2)));updateLeafGeometry(sheet.geometry,forward?p:1-p,1,.009,turnCurl);this.canvas.dataset.turnCurlStrength=turnCurl.toFixed(4);this.canvas.dataset.turnProgress=p.toFixed(4);});
   this.setSpread(next,index,lang);sheet.visible=false;this.setMotion('open');this.dirty=true;
  }
  async riffle(next,index,lang,duration=2000){
