@@ -4,6 +4,7 @@
     840
   ],
   "period": 12,
+  "doorPeriod": 8.1,
   "doorAngle": 0.7853981634,
   "perspective": 650,
   "parts": [
@@ -358,7 +359,7 @@
   "flagPadding": 26,
   "doorTiming": {
     "start": 0,
-    "end": 0.75,
+    "end": 0.722222222222,
     "ramp": 0.035
   },
   "doorSeam": 605.25,

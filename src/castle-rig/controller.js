@@ -3,7 +3,7 @@ import config from './regions.json';
 import {quadVertex,copyFragment,finalFragment,recessFragment,meshVertex,meshFragment,edgeVertex,edgeFragment} from './shaders.js';
 const asset=name=>`${import.meta.env.BASE_URL}assets/castle-rig-${name}.webp`;
 const ease=x=>{x=THREE.MathUtils.clamp(x,0,1);return x*x*x*(x*(x*6-15)+10);};
-function loopDoor(seconds){const p=((seconds%config.period)+config.period)%config.period/config.period,{start,end,ramp}=config.doorTiming;if(p<start||p>=end)return 0;const u=(p-start)/(end-start);return config.doorAngle*Math.sin(Math.PI*u)*ease(u/ramp)*ease((1-u)/ramp);}
+function loopDoor(seconds){const period=config.doorPeriod??config.period,p=((seconds%period)+period)%period/period,{start,end,ramp}=config.doorTiming;if(p<start||p>=end)return 0;const u=(p-start)/(end-start);return config.doorAngle*Math.sin(Math.PI*u)*ease(u/ramp)*ease((1-u)/ramp);}
 // All time is absolute phase or an explicit frozen time. No integrated physics,
 // accumulated mesh transforms, frame sequences or video element exist here.
 export class CastleRig{
@@ -76,7 +76,8 @@ export class CastleRig{
   const now=performance.now();if(!this.active||this.quiet||this.mode==='stopped'||this.mode==='opened'||this.manual||document.hidden){this.last=null;return false;}
   const dt=this.last===null||this.last===undefined?0:(now-this.last)/1000;this.last=now;
   if(this.mode==='opening'){this.transitionElapsed=Math.min(this.transitionDuration,this.transitionElapsed+dt);if(this.transitionElapsed===this.transitionDuration&&!this.transitionDelivered){this.transitionDelivered=true;const resolve=this.transitionResolve;this.transitionResolve=null;queueMicrotask(()=>resolve?.({cancelled:false}));}}
-  else this.elapsed=(this.elapsed+dt)%config.period;
+  // Keep the source clock monotonic: flags and door have independent periods.
+  else this.elapsed+=dt;
   this.draw();if(this.mode==='opening'&&this.transitionElapsed===this.transitionDuration)this.mode='opened';this.emit();return true;
  }
  // Explicit review/scrubbing API; deterministic even when rendering is delayed.
