@@ -91,6 +91,11 @@ export class BookScene{
  }
  setFilmLayer(material,id,side,verso=false){const f=material.userData.pageFilm;if(!f)return;f.enabled.value=this.pageFilm&&id==='castle'?1:0;f.transform.value.set(verso?.5:side*.5,verso?0:.5);}
  attachPageFilm(film){this.pageFilm=film;this.filmMap.value=film.texture;this.blocks.forEach((b,i)=>this.setFilmLayer(b.material[0],this.page?.id,i?1:-1));this.filmCompositor?.invalidate();this.dirty=true;}
+ projectPagePoint(x,y){
+  this.book.updateWorldMatrix(true,false);
+  const p=new THREE.Vector3(paperHingeX(1)+(x/960-.5)*2*PAGE_WIDTH,(.5-y/672)*PAGE_HEIGHT,PAPER_SURFACE_Z+.002).applyMatrix4(this.book.matrixWorld).project(this.camera);
+  return {x:(p.x+1)*this.canvas.clientWidth/2,y:(1-p.y)*this.canvas.clientHeight/2};
+ }
  texture(stock,page,lang='zh-TW'){
   const key=page?.heading?`${lang}/${page.id}/${this.mobile?'mobile':'desktop'}`:stock;if(this.textureCache.has(key))return this.textureCache.get(key);
   const canvas=document.createElement('canvas');canvas.width=1024;canvas.height=1408;const c=canvas.getContext('2d');c.drawImage(stock==='black'?this.black:this.white,0,0);
