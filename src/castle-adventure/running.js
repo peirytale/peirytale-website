@@ -1,4 +1,4 @@
-import clips from './run-clips.json';
+import clips from './run-clips.json' with {type:'json'};
 const clamp=x=>Math.max(0,Math.min(1,x));
 const ease=x=>{x=clamp(x);return x*x*x*(x*(x*6-15)+10);};
 const fract=x=>x-Math.floor(x);

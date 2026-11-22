@@ -1,6 +1,6 @@
 // Native film pixels, measured from the owner’s storyboard. All timings are seconds.
 export const adventure={
- size:[960,672],atlas:'castle-guide.webp',flowAtlas:'castle-guide-flow.webp',
+ size:[960,672],atlas:'castle-guide.webp',flowAtlas:'castle-guide-flow.webp',repairAtlas:'guide-rig-repair.webp',runAtlas:'guide-run-parts.webp',
  approach:2,settle:0,push:3.4,normalize:.65,invitationAngle:Math.PI/4,pairedDoor:{match:.38,anticipation:.11,joinSpeed:1.05},cornerRadius:4,arrivalSlowdown:.12,perspectiveSpeedPower:4,
  // Start wholly below the ornament's inner edge, not the physical paper edge.
  entryClip:[42,32,926,637],

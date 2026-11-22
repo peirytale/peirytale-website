@@ -7,13 +7,15 @@ export const copy={
   {id:'first-leaf',label:'第一張白頁',left:'black',right:'white'},
   {id:'title-page',leftLeaves:6,label:'Peiry Tale',left:'white',right:'white',heading:'peiry tale',subtitle:'把生活剪裁成喜歡的樣子'},
   {id:'prologue',leftLeaves:7,label:'序章',left:'white',right:'white',eyebrow:'I / prologue',heading:'日常，也值得寫成童話。'},
-  {id:'castle',leftLeaves:8,label:'城堡頁',left:'white',right:'white'}]},
+  {id:'castle',leftLeaves:8,label:'城堡頁',left:'white',right:'white'},
+  {id:'workshop',leftLeaves:9,label:'城堡裡的工坊',left:'white',right:'white'}]},
  en:{coverEyebrow:'A STORY STILL UNFOLDING',coverHeading:'Shape everyday life into what you love',title:'Peiry Tale | Shape everyday life into what you love',description:'Open Peiry Tale. Everyday life deserves a fairytale, too.',open:'Enter the fairytale',openHelp:'Click to open the storybook',language:'繁體中文',musicOn:'Turn music on',musicOff:'Turn music off',contents:'Pages',close:'Close',cover:'Back to cover',previous:'Previous page',next:'Next page',rotateBook:'Rotate the book',rotateHelp:'Drag or use arrow keys to rotate the cover. Home resets the angle; Enter opens the book.',playing:'Introduction playing',complete:'Castle page',chapters:[
   {id:'endpapers',label:'Black endpapers',left:'black',right:'black'},
   {id:'first-leaf',label:'First white leaf',left:'black',right:'white'},
   {id:'title-page',leftLeaves:6,label:'Peiry Tale',left:'white',right:'white',heading:'peiry tale',subtitle:'Shape everyday life into what you love',lines:['Shape everyday life','into what you love']},
   {id:'prologue',leftLeaves:7,label:'Prologue',left:'white',right:'white',eyebrow:'I / prologue',heading:'Everyday life deserves a fairytale, too.',lines:['Everyday life deserves','a fairytale, too.']},
-  {id:'castle',leftLeaves:8,label:'Castle page',left:'white',right:'white'}]}
+  {id:'castle',leftLeaves:8,label:'Castle page',left:'white',right:'white'},
+  {id:'workshop',leftLeaves:9,label:'The castle workshop',left:'white',right:'white'}]}
 };
 
 export const pageTypography={

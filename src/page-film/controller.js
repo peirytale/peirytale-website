@@ -35,9 +35,9 @@ export class PageFilm{
  makeVideoTexture(){this.videoTexture?.dispose();this.videoTexture=new THREE.VideoTexture(this.video);this.videoTexture.colorSpace=THREE.NoColorSpace;this.videoTexture.minFilter=this.videoTexture.magFilter=THREE.LinearFilter;}
  copy(texture){const r=this.renderer,previous=r.getRenderTarget(),auto=r.autoClear;this.material.uniforms.frame.value=texture;r.autoClear=true;r.setRenderTarget(this.target);r.render(this.copyScene,this.camera);r.setRenderTarget(previous);r.autoClear=auto;this.onFrame();}
  tick(){if(this.disposed||!this.pendingFrame||this.quiet||this.staticFinal||this.pendingSeek!==null||(!this.nativePlaying&&!this.finishedNaturally)||this.video.readyState<2)return false;this.pendingFrame=false;this.copy(this.videoTexture);this.frames++;this.emit();return true;}
- setActive(active,quiet=this.quiet){
-  const resume=this.quiet&&!quiet&&this.complete&&!this.finishedNaturally&&this.finalState!=='fallback';this.active=active;
-  if(quiet&&!this.quiet)this.showFinal();this.quiet=quiet;
+ setActive(active,quiet=this.quiet,{retainComplete=false}={}){
+  const resume=!retainComplete&&this.quiet&&!quiet&&this.complete&&!this.finishedNaturally&&this.finalState!=='fallback';this.active=active;
+  if(quiet&&!this.quiet&&!(retainComplete&&this.complete))this.showFinal();this.quiet=quiet;
   if(resume){this.complete=false;this.staticFinal=false;this.state=this.blank?'ready':'loading';if(this.sourceAssigned)this.video.currentTime=0;if(this.blank)this.copy(this.blank);}
   this.sync();this.emit();
  }

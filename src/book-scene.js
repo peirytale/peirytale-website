@@ -15,7 +15,7 @@ export class BookScene{
   this.canvas=canvas;this.dirty=true;this.opened=false;this.progress=0;this.chapter=0;this.quiet=false;this.leftStack=0;
   this.renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:false});
   this.renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));this.renderer.setClearColor(0xeeeae2);
-  this.filmMap={value:null};this.completionProgress={value:-1};this.canvas.dataset.completionEffect='none';this.supportsFilmCache=this.renderer.extensions.has('EXT_color_buffer_float');
+  this.filmMap={value:null};this.filmMaterials=new Set();this.completionProgress={value:-1};this.canvas.dataset.completionEffect='none';this.supportsFilmCache=this.renderer.extensions.has('EXT_color_buffer_float');
   this.renderer.shadowMap.autoUpdate=false;this.renderer.shadowMap.needsUpdate=true;this.renderer.shadowMap.enabled=true;this.renderer.shadowMap.type=THREE.PCFSoftShadowMap;
   this.scene=new THREE.Scene();this.camera=new THREE.OrthographicCamera(-5,5,4,-4,.1,100);this.camera.position.set(0,0,15);
   this.scene.add(new THREE.HemisphereLight(0xffffff,0xb6afa5,2.0));
@@ -62,9 +62,9 @@ export class BookScene{
   // exposed leaf; this soft contact occlusion follows the material root even
   // while turning, rather than drawing a line over the book viewport.
   const material=new THREE.MeshStandardMaterial({map,color:0xebebeb,roughness:.97,metalness:0});
-  const film={enabled:{value:0},transform:{value:new THREE.Vector2(.5,.5)}};material.userData.pageFilm=film;
+  const film={enabled:{value:0},map:{value:null},id:null,transform:{value:new THREE.Vector2(.5,.5)}};material.userData.pageFilm=film;this.filmMaterials.add(material);
   material.onBeforeCompile=shader=>{
-   Object.assign(shader.uniforms,{pageFilmMap:this.filmMap,pageFilmEnabled:film.enabled,pageFilmTransform:film.transform,completionProgress:this.completionProgress});
+   Object.assign(shader.uniforms,{pageFilmMap:film.map,pageFilmEnabled:film.enabled,pageFilmTransform:film.transform,completionProgress:this.completionProgress});
    shader.vertexShader=shader.vertexShader.replace('#include <common>','#include <common>\nvarying vec2 filmUv;').replace('#include <begin_vertex>','#include <begin_vertex>\nfilmUv=uv;');
    shader.fragmentShader=shader.fragmentShader.replace('#include <common>','#include <common>\nuniform sampler2D pageFilmMap;uniform float pageFilmEnabled;uniform vec2 pageFilmTransform;varying vec2 filmUv;\n'+decodePageFilm+completionShader).replace('#include <map_fragment>','#include <map_fragment>\nif(pageFilmEnabled>.5)diffuseColor.rgb*=pageFilmTransmission(texture2D(pageFilmMap,vec2(filmUv.x*pageFilmTransform.x+pageFilmTransform.y,filmUv.y)).rgb);');
    shader.fragmentShader=shader.fragmentShader.replace('#include <opaque_fragment>',`if(pageFilmEnabled>.5)outgoingLight=castleCompletionColor(outgoingLight,vec2(filmUv.x*pageFilmTransform.x+pageFilmTransform.y,filmUv.y));\n#include <opaque_fragment>`);
@@ -89,12 +89,21 @@ export class BookScene{
   }
   c.putImageData(image,0,0);return canvas;
  }
- setFilmLayer(material,id,side,verso=false){const f=material.userData.pageFilm;if(!f)return;f.enabled.value=this.pageFilm&&id==='castle'?1:0;f.transform.value.set(verso?.5:side*.5,verso?0:.5);}
- attachPageFilm(film){this.pageFilm=film;this.filmMap.value=film.texture;this.blocks.forEach((b,i)=>this.setFilmLayer(b.material[0],this.page?.id,i?1:-1));this.filmCompositor?.invalidate();this.dirty=true;}
+ mediaTexture(id){return id==='castle'?(this.pageFilm?.adventure?.texture||this.pageFilm?.texture):id==='workshop'&&this.pageFilm?.workshop?this.pageFilm.texture:null;}
+ updatePageFilmMaps(){for(const material of this.filmMaterials){const f=material.userData.pageFilm;f.map.value=this.mediaTexture(f.id);f.enabled.value=f.map.value?1:0;}this.filmMap.value=this.mediaTexture(this.page?.id);this.dirty=true;}
+ setFilmLayer(material,id,side,verso=false){const f=material.userData.pageFilm;if(!f)return;f.id=id;f.map.value=this.mediaTexture(id);f.enabled.value=f.map.value?1:0;f.transform.value.set(verso?.5:side*.5,verso?0:.5);}
+ attachPageFilm(film){this.pageFilm=film;this.updatePageFilmMaps();this.filmCompositor?.invalidate();this.dirty=true;}
  projectPagePoint(x,y){
   this.book.updateWorldMatrix(true,false);
   const p=new THREE.Vector3(paperHingeX(1)+(x/960-.5)*2*PAGE_WIDTH,(.5-y/672)*PAGE_HEIGHT,PAPER_SURFACE_Z+.002).applyMatrix4(this.book.matrixWorld).project(this.camera);
   return {x:(p.x+1)*this.canvas.clientWidth/2,y:(1-p.y)*this.canvas.clientHeight/2};
+ }
+ unprojectPagePoint(clientX,clientY){
+  const rect=this.canvas.getBoundingClientRect(),pointer=new THREE.Vector2((clientX-rect.left)/rect.width*2-1,1-(clientY-rect.top)/rect.height*2),ray=new THREE.Raycaster();
+  this.scene.updateMatrixWorld(true);ray.setFromCamera(pointer,this.camera);
+  const hit=ray.intersectObjects(this.blocks,false).find(h=>h.face?.materialIndex===0&&h.uv);
+  if(!hit)return null;const side=hit.object===this.blocks[0]?-1:1;
+  return [( .5+side*hit.uv.x*.5)*960,(1-hit.uv.y)*672];
  }
  texture(stock,page,lang='zh-TW'){
   const key=page?.heading?`${lang}/${page.id}/${this.mobile?'mobile':'desktop'}`:stock;if(this.textureCache.has(key))return this.textureCache.get(key);
@@ -140,6 +149,7 @@ export class BookScene{
   this.filmCompositor?.invalidate();this.page=page;this.chapter=index;this.lang=lang;this.setStack(pageStackAmount(page));this.blocks[0].material[1].map=this.texture(page.left);this.blocks[0].material[1].needsUpdate=true;this.blocks[0].material[2]=page.left==='black'?this.blackEdgeMaterial:this.edgeMaterial;
   this.blocks.forEach((mesh,i)=>{mesh.material[0].map=this.texture(i?page.right:page.left,i?page:null,lang);mesh.material[0].needsUpdate=true;this.setFilmLayer(mesh.material[0],page.id,i?1:-1);});
   this.canvas.dataset.page=page.id;this.canvas.dataset.leftStock=page.left;this.canvas.dataset.rightStock=page.right;this.dirty=true;
+  this.updatePageFilmMaps();
   if(hintEnabled)this.setPageHint(true);
  }
  setPageHint(enabled){
@@ -212,7 +222,7 @@ export class BookScene{
  }
  async riffle(next,index,lang,duration=2000){
   const white=this.texture('white');this.setMotion('riffling');
-  for(const sheet of this.sheets){sheet.material[0].map=white;sheet.material[1].map=white;sheet.material[0].needsUpdate=sheet.material[1].needsUpdate=true;}
+  for(const sheet of this.sheets){sheet.material[0].map=white;sheet.material[1].map=white;sheet.material[0].needsUpdate=sheet.material[1].needsUpdate=true;this.setFilmLayer(sheet.material[0],null,1);this.setFilmLayer(sheet.material[1],null,-1,true);}
   const leafTime=.78,step=(2-leafTime)/5;
   await this.animate(duration,p=>{
    const time=p*2;let landed=0;for(let i=0;i<6;i++)landed+=smooth(THREE.MathUtils.clamp((time-(leafTime+i*step-.12))/.12,0,1))/6;this.setStack(landed*pageStackAmount(next));if(landed>0)this.blocks[0].material[2]=this.edgeMaterial;
@@ -249,13 +259,13 @@ export class BookScene{
  canCachePageFilm(){
   // animate() resolves before turn() commits its spread and hides its leaf.
   // A finished animation clock alone must never enable the paper UV cache.
-  return this.supportsFilmCache&&this.pageFilm&&this.page?.id==='castle'&&this.opened&&this.progress===1&&this.bindingMotion==='open'&&!this.animation&&!this.hint&&!this.sheets.some(s=>s.visible);
+  return this.supportsFilmCache&&this.mediaTexture(this.page?.id)&&this.opened&&this.progress===1&&this.bindingMotion==='open'&&!this.animation&&!this.hint&&!this.sheets.some(s=>s.visible);
  }
  tick(now){
   const dt=Math.max(0,now-(this.lastTick??now));this.lastTick=now;
   if(this.animation||this.hint)this.renderer.shadowMap.needsUpdate=true;
   if(this.animation&&!this.paused&&!document.hidden){const a=this.animation;a.elapsed+=Math.min(dt,Math.max(0,now-a.started));const p=a.duration?Math.min(1,a.elapsed/a.duration):1;a.update(a.linear?p:smooth(p));if(a.paint)this.dirty=true;if(p===1){this.animation=null;a.resolve(true);}}
-  this.updatePageHint(dt);this.updateCompletionSparkle(dt);if(this.pageFilm?.tick())this.dirty=true;
+  this.updatePageHint(dt);this.updateCompletionSparkle(dt);if(this.pageFilm?.tick()){this.updatePageFilmMaps();this.dirty=true;}
   if(this.dirty){if(this.canCachePageFilm()){this.canvas.dataset.renderPath='film-cache';this.filmCompositor??=new PageFilmCompositor(this.renderer,this.blocks,{background:[this.table,this.contactShadow,this.ribbon],foreground:this.book.children.filter(o=>o!==this.ribbon),completionProgress:this.completionProgress});this.filmCompositor.render(this.scene,this.camera,this.filmMap.value);}else{this.canvas.dataset.renderPath='physical';this.renderer.render(this.scene,this.camera);}this.canvas.dataset.drawCalls=String(this.renderer.info.render.calls);this.canvas.dataset.triangles=String(this.renderer.info.render.triangles);this.canvas.dataset.textures=String(this.renderer.info.memory.textures);this.dirty=false;this.canvas.dataset.renderCount=String((Number(this.canvas.dataset.renderCount)||0)+1);if(this.hint&&this.hint.started===null&&!this.animation)this.hint.started=now;}
   this.frame=requestAnimationFrame(this.tick);
  }

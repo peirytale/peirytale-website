@@ -6,6 +6,7 @@ import {pageFilmCopy} from './content/page-film.js';
 import {AssetLoader} from './asset-loader.js';
 import {loadingCopy} from './content/loading.js';
 import {adventure as adventureConfig,adventureCopy} from './castle-adventure/config.js';
+import {workshopCopy,room as workshopRoom} from './workshop/layout.js';
 const app=document.querySelector('#app');
 const stored=(k,d)=>{try{return localStorage.getItem(k)||d}catch{return d}};
 const save=(k,v)=>{try{localStorage.setItem(k,v)}catch{}};
@@ -13,7 +14,8 @@ let lang=new URLSearchParams(location.search).get('lang')||stored('peiry-languag
 const motionQuery=matchMedia('(prefers-reduced-motion: reduce)');
 let quiet=motionQuery.matches;
 let index=-1,targetIndex=-1,playing=false,turning=false,contents=false,run=0,navigation=0,scene,rotationDrag,pageDrag,suppressPageClick=false;
-let film,filmPromise,rig,rigPromise,adventure,rigHandoff=false,filmCompletionAnnounced=false,startupReady=false,preloadedVideo=null;
+let film,filmPromise,rig,rigPromise,adventure,chapter,workshopUI,fallbackWorkshop,fallbackPromise,rigHandoff=false,filmCompletionAnnounced=false,startupReady=false,preloadedVideo=null;
+let directWorkshop=location.hash==='#workshop',workshopBridge=null,handoffIntent=0;
 const music=new Music(updateMusic);
 const loader=new AssetLoader(({loaded,total})=>{const progress=document.querySelector('#loading-progress');if(progress){if(total){progress.value=Math.min(90,Math.floor(loaded/total*90));progress.textContent=`${progress.value}%`;}else progress.removeAttribute('value');}});
 const rigTest=new URLSearchParams(location.search).has('rig-test');
@@ -26,13 +28,28 @@ castleHit.id='castle-enter';castleHit.hidden=true;castleHit.dataset.action='cast
 let announcedAdventure='idle';
 function syncAdventureUI(state){
  if(!scene)return;
- if(state){canvas.dataset.adventureState=state.state;canvas.dataset.adventureTime=state.time.toFixed(3);if(scene.pageFilm===adventure){scene.filmMap.value=adventure.texture;scene.dirty=true;}if(state.state!==announcedAdventure){announcedAdventure=state.state;const message={approaching:'running',pushing:'pushing',lit:'lit'}[state.state];if(message)document.querySelector('#announcement').textContent=adventureCopy[lang][message];}}
+ if(state){canvas.dataset.adventureState=state.state;canvas.dataset.adventureTime=state.time.toFixed(3);refreshChapter();if(state.state!==announcedAdventure){announcedAdventure=state.state;const message={approaching:'running',pushing:'pushing',lit:'lit'}[state.state];if(message)document.querySelector('#announcement').textContent=adventureCopy[lang][message];}}
  const visible=startupReady&&index===4&&!turning&&!contents&&!playing&&canvas.dataset.rigHandoff==='complete';
- castleHit.hidden=!visible||!adventure?.loaded;castleHit.disabled=adventure?.state!=='idle';castleHit.setAttribute('aria-label',adventureCopy[lang].enter);
+ castleHit.hidden=!visible||!adventure?.loaded||chapter?.mode!=='castle';castleHit.disabled=adventure?.state!=='idle';castleHit.setAttribute('aria-label',adventureCopy[lang].enter);
  if(visible){const points=adventureConfig.hitPolygon.map(p=>scene.projectPagePoint(...p)),xs=points.map(p=>p.x),ys=points.map(p=>p.y),left=Math.min(...xs),top=Math.min(...ys),w=Math.max(...xs)-left,h=Math.max(...ys)-top;Object.assign(castleHit.style,{left:`${left}px`,top:`${top}px`,width:`${w}px`,height:`${h}px`,clipPath:`polygon(${points.map(p=>`${(p.x-left)/w*100}% ${(p.y-top)/h*100}%`).join(',')})`});}
 }
-castleHit.addEventListener('click',()=>{if(adventure?.start()){scene.filmMap.value=adventure.texture;scene.dirty=true;}});
-canvas.addEventListener('bookresize',()=>syncAdventureUI());
+function refreshChapter(){if(scene&&chapter&&scene.pageFilm===chapter)scene.updatePageFilmMaps();}
+function workshopVisible(){return startupReady&&!turning&&!contents&&!playing&&(index===5||index===4&&chapter?.mode==='castle');}
+let announcedWorkshop=false;
+function syncWorkshopUI(state){
+ if(!scene)return;
+ if(state){
+  const previousMode=canvas.dataset.workshopState,previousActor=canvas.dataset.workshopActorState;
+  canvas.dataset.workshopState=state.mode;canvas.dataset.workshopLoading=String(state.loading);canvas.dataset.workshopError=state.error||'';canvas.dataset.workshopActorState=state.actorState;canvas.dataset.workshopActorTarget=state.actorTarget||'';
+  if(state.mode==='workshop'&&!announcedWorkshop){announcedWorkshop=true;document.querySelector('#announcement').textContent=workshopCopy[lang].ready;}
+  if(state.mode==='workshop'&&state.actorState==='entering'&&previousActor!=='entering')document.querySelector('#announcement').textContent=workshopCopy[lang].entering;
+  if(state.mode==='workshop'&&state.actorState==='idle'&&previousActor==='entering')document.querySelector('#announcement').textContent=workshopCopy[lang].actorReady;
+  if(state.mode==='castle')announcedWorkshop=false;
+ }
+ refreshChapter();syncAdventureUI();workshopUI?.sync(workshopVisible());
+}
+castleHit.addEventListener('click',()=>{if(adventure?.start())refreshChapter();});
+canvas.addEventListener('bookresize',()=>{syncAdventureUI();workshopUI?.position();});
 ui.style.setProperty('--printed-label-top',`${pageTypography.layout.labelY/1408*100}%`);ui.style.setProperty('--printed-heading-top',`${pageTypography.layout.headingY/1408*100}%`);ui.style.setProperty('--printed-center',`${pageTypography.layout.x/1024*100}%`);
 ui.style.setProperty('--cover-image',`url("${import.meta.env.BASE_URL}assets/storybook-cover.webp")`);
 canvas.addEventListener('bookresize',({detail:r})=>{ui.style.setProperty('--book-width',`${r.width}px`);ui.style.setProperty('--book-height',`${r.height}px`);ui.style.setProperty('--book-center-y',`${r.y}px`);openPrompt.style.setProperty('--book-height',`${r.height}px`);arrows.style.setProperty('--book-height',`${r.height}px`);});
@@ -45,30 +62,32 @@ function updateMusic(state){
 }
 function forwardLocked(){return index===4&&Boolean(scene)&&!quiet&&(!film||!film.complete);}
 function syncNavigation(){const next=ui.querySelector('[data-action=next]');if(next)next.disabled=turning||forwardLocked();canvas.dataset.nextLocked=String(forwardLocked());}
-function advance(){if(!forwardLocked())go(targetIndex===4?-1:targetIndex+1);}
+function advance(){if(!forwardLocked())go(targetIndex===5?-1:targetIndex+1);}
 function prepareRig(){
- rigPromise??=Promise.all([import('./castle-rig/controller.js'),import('./castle-adventure/controller.js')]).then(async([{CastleRig},{CastleAdventure}])=>{rig=new CastleRig(scene.renderer,()=>scene.dirty=true,()=>{canvas.dataset.rigActive=String(Boolean(rig?.active));canvas.dataset.rigMode=rig?.mode||'loading';});if(rigTest){window.__peiryCastleRig=rig;window.__peiryBook=scene;}await rig.ready;const [atlas,flow]=await Promise.all([loader.load(adventureConfig.atlas),loader.load(adventureConfig.flowAtlas)]);adventure=new CastleAdventure(rig,syncAdventureUI,atlas,flow);if(rigTest)window.__peiryCastleAdventure=adventure;await adventure.ready;canvas.dataset.rigReady='true';return rig;});return rigPromise;
+ rigPromise??=Promise.all([import('./castle-rig/controller.js'),import('./castle-adventure/controller.js'),import('./workshop/chapter.js'),import('./workshop/ui.js')]).then(async([{CastleRig},{CastleAdventure},{WorkshopChapter},{WorkshopUI}])=>{rig=new CastleRig(scene.renderer,()=>scene.dirty=true,()=>{canvas.dataset.rigActive=String(Boolean(rig?.active));canvas.dataset.rigMode=rig?.mode||'loading';});if(rigTest){window.__peiryCastleRig=rig;window.__peiryBook=scene;}await rig.ready;const [atlas,flow,repair,run]=await Promise.all([loader.load(adventureConfig.atlas),loader.load(adventureConfig.flowAtlas),loader.load(adventureConfig.repairAtlas),loader.load(adventureConfig.runAtlas)]);adventure=new CastleAdventure(rig,syncAdventureUI,atlas,flow,repair,run);if(rigTest)window.__peiryCastleAdventure=adventure;await adventure.ready;chapter=new WorkshopChapter(adventure,loader,syncWorkshopUI,refreshChapter);workshopUI=new WorkshopUI(app.querySelector('.stage'),scene,chapter,()=>lang,text=>document.querySelector('#announcement').textContent=text);if(rigTest){window.__peiryWorkshop=chapter;window.__peiryWorkshopUI=workshopUI;}chapter.onTurn=turnToWorkshop;chapter.onReturn=()=>go(4);chapter.onRetryDirect=()=>go(5,{immediate:true});canvas.dataset.rigReady='true';return rig;}).catch(error=>{rigPromise=null;adventure?.dispose();rig?.dispose();adventure=null;rig=null;throw error;});return rigPromise;
 }
 async function handoffRig(){
- if(rigHandoff)return;rigHandoff=true;
- try{await prepareRig();if(rig.disposed||film.disposed)return;film.tick();rig.capture(film.texture);
+ if(rigHandoff)return;rigHandoff=true;const intent=++handoffIntent;
+ try{await prepareRig();if(intent!==handoffIntent||rig.disposed||film.disposed)return;film.tick();rig.capture(film.texture);
  // Let the existing completion glints finish before the local-only loop starts.
- const canAttach=await new Promise(resolve=>{const settled=()=>{if(rig.disposed||film.disposed){resolve(false);return;}if(index===4&&!turning&&!contents&&!playing&&scene.bindingMotion==='open'&&!scene.animation&&(!scene.completion||quiet)){resolve(true);return;}requestAnimationFrame(settled);};requestAnimationFrame(settled);});if(!canAttach)return;
- if(rig.disposed||film.disposed)return;scene.attachPageFilm(adventure);rig.resume();adventure.setActive(startupReady&&index===4&&!turning&&!contents&&!playing,quiet);canvas.dataset.rigHandoff='complete';syncAdventureUI();
+ const canAttach=await new Promise(resolve=>{const settled=()=>{if(intent!==handoffIntent||rig.disposed||film.disposed){resolve(false);return;}if(index===4&&!turning&&!contents&&!playing&&scene.bindingMotion==='open'&&!scene.animation&&(!scene.completion||quiet)){resolve(true);return;}requestAnimationFrame(settled);};requestAnimationFrame(settled);});if(!canAttach)return;
+ if(rig.disposed||film.disposed)return;scene.attachPageFilm(chapter);rig.resume();chapter.setActive(startupReady&&index===4&&!turning&&!contents&&!playing,quiet);canvas.dataset.rigHandoff='complete';syncAdventureUI();
  }catch(error){rigHandoff=false;console.warn('Local castle animation unavailable; keeping completed artwork.',error.message);}
 }
-function filmState(state){if(scene&&state.state==='playing')prepareRig().catch(()=>{});if(scene&&state.state==='finished'&&(film?.finishedNaturally||(quiet&&film?.complete)))handoffRig();if(state.active&&(state.state==='playing'||(quiet&&state.state==='finished')))loader.startStage('castlePlaying');canvas.dataset.filmState=state.state;canvas.dataset.filmTime=state.time.toFixed(4);canvas.dataset.filmActive=String(state.active);canvas.dataset.filmFrames=String(state.frames);canvas.dataset.filmSource=state.source;canvas.dataset.filmGeneration=String(state.generation);canvas.dataset.filmRecoveries=String(state.recoveries);canvas.dataset.filmPresentedTime=state.presentedTime.toFixed(4);syncNavigation();if(state.state==='finished'&&state.active&&film?.finishedNaturally&&!filmCompletionAnnounced){filmCompletionAnnounced=true;announce();}if(state.state==='finished'&&state.active&&film?.finishedNaturally&&!quiet)scene?.startCompletionSparkle();}
+function filmState(state){if(scene&&state.state==='playing')prepareRig().catch(()=>{});if(scene&&!directWorkshop&&state.state==='finished'&&(film?.finishedNaturally||(quiet&&film?.complete)))handoffRig();if(state.active&&(state.state==='playing'||(quiet&&state.state==='finished')))loader.startStage('castlePlaying');canvas.dataset.filmState=state.state;canvas.dataset.filmTime=state.time.toFixed(4);canvas.dataset.filmActive=String(state.active);canvas.dataset.filmFrames=String(state.frames);canvas.dataset.filmSource=state.source;canvas.dataset.filmGeneration=String(state.generation);canvas.dataset.filmRecoveries=String(state.recoveries);canvas.dataset.filmPresentedTime=state.presentedTime.toFixed(4);syncNavigation();if(state.state==='finished'&&state.active&&film?.finishedNaturally&&!filmCompletionAnnounced){filmCompletionAnnounced=true;announce();}if(state.state==='finished'&&state.active&&film?.finishedNaturally&&!quiet)scene?.startCompletionSparkle();}
 async function syncFilm(){
- const active=()=>startupReady&&index===4&&!turning&&!contents&&!playing;film?.setActive(active(),quiet);
- if(rigHandoff&&film&&!film.complete){adventure?.cancel();rigHandoff=false;delete canvas.dataset.rigHandoff;scene.attachPageFilm(film);}
- if(index!==4||turning)adventure?.cancel();adventure?.setActive(Boolean(rigHandoff&&canvas.dataset.rigHandoff==='complete'&&active()),quiet);syncAdventureUI();
- if(!scene||index<2||film)return;
- filmPromise??=import('./page-film/controller.js').then(({PageFilm})=>{film=new PageFilm(scene.renderer,()=>scene.dirty=true,filmState,preloadedVideo);scene.attachPageFilm(film);music.bind(film.video);if(filmTest){window.__peiryPageFilm=film;window.__peiryBook=scene;}film.setActive(active(),quiet);return film;});
+ const active=()=>startupReady&&[4,5].includes(index)&&!turning&&!contents&&!playing;
+ const castleActive=()=>active()&&index===4&&!directWorkshop;
+ film?.setActive(castleActive(),quiet,{retainComplete:directWorkshop||index===5});
+ if(rigHandoff&&film&&!film.complete&&!workshopBridge&&!directWorkshop){chapter?.cancel();rigHandoff=false;delete canvas.dataset.rigHandoff;scene.attachPageFilm(film);}
+ chapter?.setActive(Boolean(rigHandoff&&canvas.dataset.rigHandoff==='complete'&&active()),quiet);syncAdventureUI();workshopUI?.sync(workshopVisible());
+ if(!scene||!preloadedVideo||index<2&&!directWorkshop||film)return;
+ filmPromise??=import('./page-film/controller.js').then(({PageFilm})=>{film=new PageFilm(scene.renderer,()=>scene.dirty=true,filmState,preloadedVideo);scene.attachPageFilm(film);music.bind(film.video);if(filmTest){window.__peiryPageFilm=film;window.__peiryBook=scene;}film.setActive(castleActive(),quiet,{retainComplete:directWorkshop||index===5});return film;});
  await filmPromise;
 }
-canvas.addEventListener('webglcontextlost',()=>{film?.setActive(false);adventure?.setActive(false,quiet);});
-canvas.addEventListener('webglcontextrestored',()=>{film?.restore();rig?.restore();adventure?.restore();scene?.filmCompositor?.invalidate();if(scene){scene.renderer.shadowMap.needsUpdate=true;scene.dirty=true;}syncFilm();});
-window.addEventListener('pagehide',ev=>{if(ev.persisted){film?.setActive(false);adventure?.setActive(false,quiet);}else{film?.dispose();adventure?.dispose();rig?.dispose();music.dispose();loader.dispose();scene?.filmCompositor?.dispose();if(scene)cancelAnimationFrame(scene.frame);}});
+canvas.addEventListener('webglcontextlost',()=>{film?.setActive(false);chapter?.setActive(false,quiet);chapter?.releaseGPU();});
+canvas.addEventListener('webglcontextrestored',()=>{film?.restore();rig?.restore();adventure?.restore();chapter?.restore();scene?.filmCompositor?.invalidate();if(scene){scene.renderer.shadowMap.needsUpdate=true;scene.dirty=true;}syncFilm();});
+window.addEventListener('pagehide',ev=>{if(ev.persisted){film?.setActive(false);chapter?.setActive(false,quiet);}else{film?.dispose();chapter?.dispose();workshopUI?.dispose();adventure?.dispose();rig?.dispose();music.dispose();loader.dispose();scene?.filmCompositor?.dispose();if(scene)cancelAnimationFrame(scene.frame);}});
 window.addEventListener('pageshow',ev=>{if(ev.persisted)syncFilm();});
 function render(){
  const t=copy[lang],page=t.chapters[index],printed=page?pageTextRows(page):null;
@@ -76,7 +95,7 @@ function render(){
  document.documentElement.dataset.coverVisible=String(index<0&&!turning);
  openPrompt.innerHTML=`<span class="open-main">${t.open} <span aria-hidden="true">↗</span></span><span class="open-help">${t.openHelp}</span>`;openPrompt.disabled=!startupReady||index>=0||turning||contents;openPrompt.setAttribute('aria-hidden',String(openPrompt.disabled));
  syncFilm();
- if(startupReady&&index===4&&!scene)loader.startStage('castlePlaying');
+ if(startupReady&&[4,5].includes(index)&&!scene)loader.startStage('castlePlaying');
  if(quiet)scene?.stopCompletionSparkle();
  scene?.setPageHint(startupReady&&!quiet&&!playing&&!turning&&!contents&&(index===2||index===3));
  coverCopy.setAttribute('aria-hidden',String(index>=0||turning||contents));coverCopy.inert=contents;
@@ -86,27 +105,58 @@ function render(){
  ui.innerHTML=`<header><a href="#cover" class="wordmark" aria-label="Peiry Tale"><img src="${import.meta.env.BASE_URL}assets/brand-logo.webp" alt="" width="48" height="48"><span class="wordmark-name">Peiry Tale<span>THE EVERYDAY FAIRYTALE</span></span></a><nav aria-label="${t.contents}"><button data-action="contents" aria-expanded="${contents}">${t.contents}</button><button data-action="language">${t.language}</button><button data-action="music" aria-label="${music.enabled?t.musicOff:t.musicOn}" aria-pressed="${music.enabled}"><svg class="music-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 5 5 9H2v6h3l5 4Z"/><path class="music-waves" d="M14 8q4 4 0 8M17 5q7 7 0 14"/><path class="music-muted" d="m14 9 6 6m0-6-6 6"/></svg><span class="music-label">${music.enabled?t.musicOff:t.musicOn}</span></button></nav></header>
  ${index<0?`<section class="cover-ui" aria-label="Peiry Tale"><div class="fallback-cover" aria-hidden="true"></div></section><div class="book-rotation" tabindex="0" role="group" aria-label="${t.rotateBook}" aria-describedby="rotation-help"></div><span id="rotation-help" class="sr-only">${t.rotateHelp}</span>`:
  `<section class="spread" aria-label="${page.label}" aria-busy="${turning}" data-left="${page.left}" data-right="${page.right}">${page.id==='castle'?`<p class="sr-only">${pageFilmCopy[lang].description}</p>${!scene?`<img class="page-film-fallback" src="${import.meta.env.BASE_URL}assets/castle-page-fallback.webp" alt="" aria-hidden="true">`:""}`:''}<div class="fallback-leaf left-leaf ${page.left}" aria-hidden="true"></div><div class="right-leaf ${page.right}"><div class="page-copy" ${page.heading?'':'hidden'}><p class="printed-label eyebrow">${e(printed.label)}</p><h1 id="page-title" class="printed-heading ${page.id==='title-page'?'page-subtitle':''}" tabindex="-1">${printed.lines.map(line=>`<span class="printed-line">${e(line)}</span>`).join(' ')}</h1></div></div></section>
- <div class="page-turn-zones"><button class="page-hit left-hit" data-action="previous" aria-label="${index===0?t.cover:t.previous}" ${turning?'disabled':''}></button><button class="page-hit right-hit" data-action="next" aria-label="${index===4?t.cover:t.next}" ${turning?'disabled':''}></button></div>
+ <div class="page-turn-zones"><button class="page-hit left-hit" data-action="previous" aria-label="${index===0?t.cover:t.previous}" ${turning?'disabled':''}></button><button class="page-hit right-hit" data-action="next" aria-label="${index===5?t.cover:t.next}" ${turning?'disabled':''}></button></div>
  `}
  ${contents?`<section class="contents" role="dialog" aria-modal="true" aria-labelledby="contents-title"><h2 id="contents-title">${t.contents}</h2><a href="#cover">${t.cover}</a>${t.chapters.map(p=>`<a href="#${p.id}" ${page?.id===p.id?'aria-current="page"':''}>${p.label}</a>`).join('')}<button data-action="dismiss">${t.close} ×</button></section>`:''}`;
  syncNavigation();updateMusic(music.state);
  if(contents){const modal=ui.querySelector('.contents');for(const child of ui.children)if(child!==modal)child.inert=true;}
+ if(!scene){fallbackPromise??=import('./workshop/fallback.js').then(({WorkshopFallback})=>fallbackWorkshop=new WorkshopFallback(app.querySelector('.stage'),mode=>go(mode==='workshop'?5:4,{immediate:true})));fallbackPromise.then(f=>f.sync({visible:startupReady&&[4,5].includes(index)&&!turning&&!contents,lang,reset:index!==5,direct:index===5}));}
 }
-function announce(){document.querySelector('#announcement').textContent=index<0?copy[lang].cover:index===4&&filmCompletionAnnounced?pageFilmCopy[lang].finished:copy[lang].chapters[index].label;}
+window.addEventListener('resize',()=>fallbackWorkshop?.position());
+function announce(){document.querySelector('#announcement').textContent=index<0?copy[lang].cover:index===5?workshopCopy[lang].title:index===4&&filmCompletionAnnounced?pageFilmCopy[lang].finished:copy[lang].chapters[index].label;}
 function address(){history.replaceState(null,'',`?lang=${lang}${rigTest?'&rig-test=1':filmTest?'&film-test=1':''}#${index<0?'cover':copy[lang].chapters[index].id}`);}
 async function stop(){run++;playing=false;scene?.setPaused(false);await scene?.finishMotion();index=targetIndex;turning=false;}
-async function move(next,{immediate=false,duration=sequence.leafTurn}={}){
+async function move(next,{immediate=false,duration=sequence.leafTurn,ticket=null}={}){
  const page=copy[lang].chapters[next];targetIndex=next;turning=true;render();
  if(next<0)await scene?.close(quiet||immediate);
  else if(index<0){scene?.setSpread(page,next,lang);await scene?.open(quiet||immediate,sequence.opening);}
  else await scene?.turn(page,next,lang,{duration,quiet:quiet||immediate});
- index=next;turning=false;render();address();announce();
+ if(ticket!==null&&ticket!==navigation)return false;index=next;turning=false;render();address();announce();return true;
 }
-async function go(next,{immediate=false}={}){
- if(next<-1||next>4)return;const ticket=++navigation;await stop();if(ticket!==navigation)return;contents=false;
- if(next!==index)await move(next,{immediate});else render();
- document.querySelector('#page-title')?.focus({preventScroll:true});
+async function prepareWorkshopTarget(ticket){
+ if(!scene)return;
+ await syncFilm();if(ticket!==navigation)return;
+ await film.ready;if(ticket!==navigation)return;
+ if(!film.finishedNaturally)film.showFinal('fallback');
+ await prepareRig();if(ticket!==navigation)return;
+ chapter.directRequested=true;chapter.emit();await chapter.prepare();if(ticket!==navigation)return;
+ if(!chapter.workshop.loaded)throw Error(chapter.error||'Workshop unavailable');
+ handoffIntent++;rig.capture(film.texture);chapter.adventure.cancel();scene.attachPageFilm(chapter);rigHandoff=true;canvas.dataset.rigHandoff='complete';
+ // Remove the previous guide from the actual texture before any new leaf is
+ // exposed, including the first frame of a returning workshop page turn.
+ chapter.prepareDirectView();
 }
+async function go(next,{immediate=false,duration=sequence.leafTurn,fromDoor=false}={}){
+ if(next<-1||next>=copy[lang].chapters.length)return null;
+ const ticket=++navigation;if(!fromDoor)workshopBridge=null;directWorkshop=next===5;
+ await stop();if(ticket!==navigation)return null;
+ if(index===5&&next!==5){chapter?.adventure.cancel();refreshChapter();}
+ if(next===5&&!fromDoor){try{await prepareWorkshopTarget(ticket);}catch(error){if(chapter){chapter.error=error.message;chapter.directRequested=true;chapter.emit();}}if(ticket!==navigation)return null;}
+ contents=false;
+ if(next!==index)await move(next,{immediate,duration,ticket});else render();
+ if(ticket!==navigation)return null;
+ if(next===5&&!fromDoor&&chapter?.workshop.loaded){chapter.setActive(startupReady&&!turning&&!contents,quiet);chapter.enter();}
+ if(next!==5){if(next===4)chapter?.back();else chapter?.cancel();render();}
+ address();document.querySelector('#page-title')?.focus({preventScroll:true});return ticket;
+}
+async function turnToWorkshop(){
+ if(workshopBridge||index!==4||chapter?.mode!=='turning')return;
+ const bridge={chapter};workshopBridge=bridge;
+ const ticket=await go(5,{fromDoor:true,duration:workshopRoom.transition.turn*1000});
+ if(!ticket||ticket!==navigation||workshopBridge!==bridge||index!==5||turning||chapter!==bridge.chapter)return;
+ workshopBridge=null;chapter.reveal();chapter.setActive(startupReady&&!contents&&!turning,quiet);syncWorkshopUI();
+}
+async function goToHash(hash,{immediate=false}={}){await go(chapterIndex(lang,hash),{immediate});}
 async function hold(ms,id){
  if(id!==run)return false;
  if(scene)await scene.animate(ms,()=>{},{linear:true,paint:false});
@@ -128,7 +178,7 @@ async function intro(){
 }
 app.addEventListener('click',async ev=>{
  if(!startupReady)return;
- const anchor=ev.target.closest('a[href^="#"]');if(anchor){ev.preventDefault();const i=chapterIndex(lang,anchor.hash);await go(i);return;}
+ const anchor=ev.target.closest('a[href^="#"]');if(anchor){ev.preventDefault();await goToHash(anchor.hash);return;}
  const b=ev.target.closest('button');if(!b)return;const action=b.dataset.action;
  if(b.classList.contains('page-hit')&&((suppressPageClick&&ev.detail!==0)||turning))return;
  if(action==='open'){intro();return;}
@@ -148,6 +198,7 @@ window.addEventListener('keydown',ev=>{
   if(ev.key==='Tab'){const nodes=[...ui.querySelectorAll('.contents a,.contents button')],first=nodes[0],last=nodes.at(-1);if(ev.shiftKey&&document.activeElement===first){ev.preventDefault();last.focus();}else if(!ev.shiftKey&&document.activeElement===last){ev.preventDefault();first.focus();}}
   return;
  }
+ if(ev.target.closest?.('select,input,textarea,[contenteditable="true"]'))return;
  if(index<0&&!turning&&ev.target.closest?.('.book-rotation')){
   const d={ArrowLeft:[-20,0],ArrowRight:[20,0],ArrowUp:[0,-20],ArrowDown:[0,20]}[ev.key];if(d){ev.preventDefault();scene?.rotateInspection(...d);return;}
   if(ev.key==='Home'){ev.preventDefault();scene?.resetInspection();return;}
@@ -171,7 +222,7 @@ ui.addEventListener('pointerup',ev=>{
 });
 ui.addEventListener('pointercancel',()=>{rotationDrag=null;pageDrag=null;suppressPageClick=false;});
 window.addEventListener('blur',()=>{rotationDrag=null;pageDrag=null;suppressPageClick=false;});
-window.addEventListener('hashchange',()=>{if(startupReady)go(chapterIndex(lang,location.hash),{immediate:quiet});});
+window.addEventListener('hashchange',()=>{if(startupReady)goToHash(location.hash,{immediate:quiet});});
 motionQuery.addEventListener('change',async ev=>{quiet=ev.matches;if(quiet&&playing)await go(2,{immediate:true});else render();});
 const loading=document.querySelector('#loading-screen'),retry=document.querySelector('#loading-retry'),loadingText=loadingCopy[lang];
 document.querySelector('#loading-title').textContent=loadingText.title;document.querySelector('#loading-detail').textContent=loadingText.detail;retry.textContent=loadingText.retry;ui.inert=true;coverCopy.inert=true;render();
@@ -183,7 +234,9 @@ async function prepareStory(){
  // Settle the GPU and requested spread beneath the same screen that was painted
  // by index.html. In particular, a chapter URL must never reveal the cover first.
  await scene?.ready;
+ directWorkshop=location.hash==='#workshop';
  if(location.hash&&location.hash!=='#cover')await go(chapterIndex(lang,location.hash),{immediate:true});
+ if(directWorkshop&&scene&&!chapter?.workshop.loaded){document.querySelector('#loading-detail').textContent=loadingText.error;retry.hidden=false;return;}
  await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
  document.querySelector('#loading-progress').value=100;music.setEnabled(true);
  loading.classList.add('leaving');
