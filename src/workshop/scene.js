@@ -26,8 +26,10 @@ export class WorkshopScene{
   // footprint reveals the clean plate; its moving volume is a normal OVER
   // layer. Never subtract paintings: negative ink differences tear the wall.
   this.eraseScene=new THREE.Scene();this.eraseNodes=new Map();this.eraseMaterial=new THREE.MeshBasicMaterial({color:0xffffff,side:THREE.DoubleSide,depthTest:false,depthWrite:false,toneMapped:false});
-  this.compositeScene=new THREE.Scene();this.compositeCamera=new THREE.Camera();this.compositeGeometry=new THREE.PlaneGeometry(2,2);this.compositeMaterial=new THREE.ShaderMaterial({uniforms:{source:{value:this.reference.texture},paint:{value:this.paint.texture},rest:{value:this.rest.texture},erase:{value:this.erase.texture},dynamic:{value:false}},vertexShader:'varying vec2 p;void main(){p=uv;gl_Position=vec4(position.xy,0.,1.);}',fragmentShader:'uniform sampler2D source,paint,rest,erase;uniform bool dynamic;varying vec2 p;void main(){vec3 base=texture2D(source,p).rgb;if(dynamic){base=mix(base,texture2D(rest,p).rgb,texture2D(erase,p).r);vec4 ink=texture2D(paint,p);base=ink.rgb+base*(1.-ink.a);}gl_FragColor=vec4(base,1.);}',depthTest:false,depthWrite:false,toneMapped:false,blending:THREE.NoBlending});this.compositeScene.add(new THREE.Mesh(this.compositeGeometry,this.compositeMaterial));
-  this.nodes=new Map();this.materials=[];this.textures=[];this.visuals=new Map();this.navigation=new WorkshopNavigation();this.actors=new THREE.Group();this.actors.name='workshop-dynamic-actors';this.actorScene=new THREE.Scene();this.actorScene.add(this.actors);this.dirty=true;this.selected=null;this.ready=null;this.disposed=false;
+  this.compositeGeometry=new THREE.PlaneGeometry(2,2);this.compositeMaterial=new THREE.ShaderMaterial({uniforms:{source:{value:this.reference.texture},paint:{value:this.paint.texture},rest:{value:this.rest.texture},erase:{value:this.erase.texture},dynamic:{value:false}},vertexShader:'varying vec2 p;void main(){p=uv;gl_Position=vec4(position.xy,0.,1.);}',fragmentShader:'uniform sampler2D source,paint,rest,erase;uniform bool dynamic;varying vec2 p;void main(){vec3 base=texture2D(source,p).rgb;if(dynamic){base=mix(base,texture2D(rest,p).rgb,texture2D(erase,p).r);vec4 ink=texture2D(paint,p);base=ink.rgb+base*(1.-ink.a);}gl_FragColor=vec4(base,1.);}',depthTest:false,depthWrite:false,toneMapped:false,blending:THREE.NoBlending});
+  this.composite=new THREE.Mesh(this.compositeGeometry,this.compositeMaterial);
+  this.composite.frustumCulled=false;this.composite.renderOrder=-1;this.composite.visible=false;
+  this.nodes=new Map();this.materials=[];this.textures=[];this.visuals=new Map();this.navigation=new WorkshopNavigation();this.actors=new THREE.Group();this.actors.name='workshop-dynamic-actors';this.actorScene=new THREE.Scene();this.actorScene.add(this.composite,this.actors);this.dirty=true;this.selected=null;this.ready=null;this.disposed=false;
  }
  get texture(){return this.target.texture;}
  async prepare(){
@@ -79,10 +81,11 @@ export class WorkshopScene{
    const visibility=this.scene.children.map(n=>[n,n.visible]);
    try{for(const [n] of visibility)n.visible=active.has(n.name);this.renderTo(this.paint,this.scene,this.camera,{background:0x000000,opacity:0});}finally{for(const [n,v] of visibility)n.visible=v;}
   }
-  this.renderTo(this.target,this.compositeScene,this.compositeCamera);
-  // A foreground actor is a normal OVER layer. Including it in the room's
-  // source/rest difference adds (source-rest) inside even fully opaque pixels.
-  this.renderTo(this.target,this.actorScene,this.camera,{clear:false});this.dirty=false;this.onFrame();return true;}
+  // The full-screen room is opaque and the actor blends OVER it in the same
+  // pass. Resolve multisampling once after both have been drawn.
+  this.composite.visible=true;
+  try{this.renderTo(this.target,this.actorScene,this.camera);}finally{this.composite.visible=false;}
+  this.dirty=false;this.onFrame();return true;}
  // Replace a visual slot without coupling future merchandise to geometry/routes.
  // Passing a complete source atlas uses source-projection; a standalone photo
  // uses object-bounds UVs. Caller owns permissions; no remote fetching here.

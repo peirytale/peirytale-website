@@ -1,12 +1,13 @@
 import './style.css';
-import {copy,sequence,pageTypography,pageTextRows,chapterIndex} from './content/book.js';
+import {copy,sequence,pageTypography,pageTextRows,chapterIndex,readingViewCopy} from './content/book.js';
 import {BookScene} from './book-scene.js';
 import {Music} from './music.js';
 import {pageFilmCopy} from './content/page-film.js';
 import {AssetLoader} from './asset-loader.js';
 import {loadingCopy} from './content/loading.js';
 import {adventure as adventureConfig,adventureCopy} from './castle-adventure/config.js';
-import {workshopCopy,room as workshopRoom} from './workshop/layout.js';
+import {workshopCopy,room as workshopRoom,objects,toPage} from './workshop/layout.js';
+import {isPortraitBook,overviewFrame,readingFrame} from './reading-frame.js';
 const app=document.querySelector('#app');
 const stored=(k,d)=>{try{return localStorage.getItem(k)||d}catch{return d}};
 const save=(k,v)=>{try{localStorage.setItem(k,v)}catch{}};
@@ -23,6 +24,58 @@ const filmTest=rigTest||import.meta.env.DEV&&new URLSearchParams(location.search
 const e=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 app.innerHTML=`<main class="stage"><canvas id="world" aria-hidden="true"></canvas><div id="book-ui"></div><div class="rotation-arrows" aria-hidden="true"><svg class="rotation-arrow left" viewBox="0 0 64 72"><defs><linearGradient id="arrow-ink" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#e0cbbc"/><stop offset=".55" stop-color="#a98280"/><stop offset="1" stop-color="#735e60"/></linearGradient></defs><path d="M51 11C27 13 16 25 16 39c0 10 6 16 17 19"/><path d="m25 50 9 9-12 3"/></svg><svg class="rotation-arrow right" viewBox="0 0 64 72"><path d="M51 11C27 13 16 25 16 39c0 10 6 16 17 19"/><path d="m25 50 9 9-12 3"/></svg></div><div id="cover-copy" class="cover-heading"></div><button id="open-prompt" class="open-book" data-action="open"></button><p id="announcement" class="sr-only" aria-live="polite"></p></main>`;
 const canvas=document.querySelector('#world'),ui=document.querySelector('#book-ui'),coverCopy=document.querySelector('#cover-copy'),openPrompt=document.querySelector('#open-prompt'),arrows=document.querySelector('.rotation-arrows');
+const stage=canvas.parentElement,readingToggle=document.createElement('button');
+readingToggle.className='reading-toggle';
+readingToggle.dataset.action='reading-view';
+readingToggle.hidden=true;
+stage.append(readingToggle);
+const workshopBounds=new Map(objects.map(({id,polygon})=>{
+ const xs=polygon.map(point=>toPage(point)[0]/workshopRoom.size[0]);
+ return [id,[Math.min(...xs),Math.max(...xs)]];
+}));
+let readerOverview=false;
+const textSpread=page=>page===2||page===3;
+function getReadingView(portrait){
+ if((stage.dataset.readingPortrait==='true')!==portrait)stage.dataset.readingPortrait=String(portrait);
+ const actor=chapter?.mode==='workshop'?chapter.actor:null;
+ const workshopEntered=!scene||actor?.state==='idle'||actor?.state==='moving';
+ let chapterView=null;
+ if(portrait&&!playing){
+  if(textSpread(index)&&(!turning||textSpread(targetIndex)))chapterView='text';
+  if(!turning&&index===4&&(!scene||film?.complete&&!scene.completion))chapterView='castle';
+  if(!turning&&index===5&&workshopEntered)chapterView='workshop';
+ }
+ const hidden=!startupReady||contents||!chapterView;
+ if(readingToggle.hidden!==hidden)readingToggle.hidden=hidden;
+ const label=readingViewCopy[lang][readerOverview?'detail':'overview'];
+ if(readingToggle.textContent!==label)readingToggle.textContent=label;
+ const view={chapter:readerOverview?null:chapterView,instant:quiet||!startupReady};
+ if(view.chapter==='workshop'){
+  const point=actor?.getPosition()||fallbackWorkshop?.getPoint()||workshopRoom.entry;
+  view.subject=toPage(point)[0]/workshopRoom.size[0];
+  view.object=workshopBounds.get(actor?.target||fallbackWorkshop?.selected);
+ }
+ return view;
+}
+function positionReadingUI({width,height,x,y}){
+ ui.style.setProperty('--book-width',`${width}px`);
+ ui.style.setProperty('--book-height',`${height}px`);
+ ui.style.setProperty('--book-center-x',`${x}px`);
+ ui.style.setProperty('--book-center-y',`${y}px`);
+}
+function positionFallback(){
+ const w=stage.clientWidth,h=stage.clientHeight;
+ const view=getReadingView(isPortraitBook(w,h));
+ if(view.chapter){
+  const width=Math.min(.84*w,(h-160)*1.428571,943),height=Math.min(.588*w,h-160,660);
+  const frame=readingFrame(w,h,width,height,{...view,instant:true},overviewFrame);
+  positionReadingUI({width:width*frame.scale,height:height*frame.scale,
+   x:w/2-(frame.center-.5)*width*frame.scale,y:h/2-frame.lift});
+ }else{
+  for(const property of ['--book-width','--book-height','--book-center-x','--book-center-y'])ui.style.removeProperty(property);
+ }
+ fallbackWorkshop?.position();
+}
 const castleHit=document.createElement('button');
 castleHit.id='castle-enter';castleHit.hidden=true;castleHit.dataset.action='castle-enter';app.querySelector('.stage').append(castleHit);
 let announcedAdventure='idle';
@@ -52,8 +105,8 @@ castleHit.addEventListener('click',()=>{if(adventure?.start())refreshChapter();}
 canvas.addEventListener('bookresize',()=>{syncAdventureUI();workshopUI?.position();});
 ui.style.setProperty('--printed-label-top',`${pageTypography.layout.labelY/1408*100}%`);ui.style.setProperty('--printed-heading-top',`${pageTypography.layout.headingY/1408*100}%`);ui.style.setProperty('--printed-center',`${pageTypography.layout.x/1024*100}%`);
 ui.style.setProperty('--cover-image',`url("${import.meta.env.BASE_URL}assets/storybook-cover.webp")`);
-canvas.addEventListener('bookresize',({detail:r})=>{ui.style.setProperty('--book-width',`${r.width}px`);ui.style.setProperty('--book-height',`${r.height}px`);ui.style.setProperty('--book-center-y',`${r.y}px`);openPrompt.style.setProperty('--book-height',`${r.height}px`);arrows.style.setProperty('--book-height',`${r.height}px`);});
-try{scene=new BookScene(canvas,()=>document.documentElement.dataset.texture='ready');document.documentElement.dataset.renderer='webgl';}
+canvas.addEventListener('bookresize',({detail:r})=>{positionReadingUI(r);openPrompt.style.setProperty('--book-height',`${r.height}px`);arrows.style.setProperty('--book-height',`${r.height}px`);});
+try{scene=new BookScene(canvas,()=>document.documentElement.dataset.texture='ready');scene.getReadingView=getReadingView;document.documentElement.dataset.renderer='webgl';}
 catch(error){document.documentElement.dataset.renderer='fallback';document.documentElement.dataset.texture='ready';console.warn('WebGL unavailable; using accessible book pages.',error.message);}
 if(filmTest&&scene)window.__peiryBook=scene;
 function updateMusic(state){
@@ -74,7 +127,16 @@ async function handoffRig(){
  if(rig.disposed||film.disposed)return;scene.attachPageFilm(chapter);rig.resume();chapter.setActive(startupReady&&index===4&&!turning&&!contents&&!playing,quiet);canvas.dataset.rigHandoff='complete';syncAdventureUI();
  }catch(error){rigHandoff=false;console.warn('Local castle animation unavailable; keeping completed artwork.',error.message);}
 }
-function filmState(state){if(scene&&state.state==='playing')prepareRig().catch(()=>{});if(scene&&!directWorkshop&&state.state==='finished'&&(film?.finishedNaturally||(quiet&&film?.complete)))handoffRig();if(state.active&&(state.state==='playing'||(quiet&&state.state==='finished')))loader.startStage('castlePlaying');canvas.dataset.filmState=state.state;canvas.dataset.filmTime=state.time.toFixed(4);canvas.dataset.filmActive=String(state.active);canvas.dataset.filmFrames=String(state.frames);canvas.dataset.filmSource=state.source;canvas.dataset.filmGeneration=String(state.generation);canvas.dataset.filmRecoveries=String(state.recoveries);canvas.dataset.filmPresentedTime=state.presentedTime.toFixed(4);syncNavigation();if(state.state==='finished'&&state.active&&film?.finishedNaturally&&!filmCompletionAnnounced){filmCompletionAnnounced=true;announce();}if(state.state==='finished'&&state.active&&film?.finishedNaturally&&!quiet)scene?.startCompletionSparkle();}
+function filmState(state){
+ // Prefetch bytes while painting. Decode and build the next scenes after the
+ // movie ends, so their texture uploads and shader work cannot stall it.
+ if(state.active&&(state.state==='playing'||(quiet&&state.state==='finished')))loader.startStage('castlePlaying');
+ if(scene&&!directWorkshop&&state.state==='finished'&&(film?.finishedNaturally||(quiet&&film?.complete)))handoffRig();
+ canvas.dataset.filmState=state.state;canvas.dataset.filmTime=state.time.toFixed(4);canvas.dataset.filmActive=String(state.active);canvas.dataset.filmFrames=String(state.frames);canvas.dataset.filmSource=state.source;canvas.dataset.filmGeneration=String(state.generation);canvas.dataset.filmRecoveries=String(state.recoveries);canvas.dataset.filmPresentedTime=state.presentedTime.toFixed(4);
+ syncNavigation();
+ if(state.state==='finished'&&state.active&&film?.finishedNaturally&&!filmCompletionAnnounced){filmCompletionAnnounced=true;announce();}
+ if(state.state==='finished'&&state.active&&film?.finishedNaturally&&!quiet)scene?.startCompletionSparkle();
+}
 async function syncFilm(){
  const active=()=>startupReady&&[4,5].includes(index)&&!turning&&!contents&&!playing;
  const castleActive=()=>active()&&index===4&&!directWorkshop;
@@ -110,9 +172,14 @@ function render(){
  ${contents?`<section class="contents" role="dialog" aria-modal="true" aria-labelledby="contents-title"><h2 id="contents-title">${t.contents}</h2><a href="#cover">${t.cover}</a>${t.chapters.map(p=>`<a href="#${p.id}" ${page?.id===p.id?'aria-current="page"':''}>${p.label}</a>`).join('')}<button data-action="dismiss">${t.close} ×</button></section>`:''}`;
  syncNavigation();updateMusic(music.state);
  if(contents){const modal=ui.querySelector('.contents');for(const child of ui.children)if(child!==modal)child.inert=true;}
- if(!scene){fallbackPromise??=import('./workshop/fallback.js').then(({WorkshopFallback})=>fallbackWorkshop=new WorkshopFallback(app.querySelector('.stage'),mode=>go(mode==='workshop'?5:4,{immediate:true})));fallbackPromise.then(f=>f.sync({visible:startupReady&&[4,5].includes(index)&&!turning&&!contents,lang,reset:index!==5,direct:index===5}));}
+ if(scene)getReadingView(isPortraitBook(stage.clientWidth,stage.clientHeight));
+ else{
+  positionFallback();
+  fallbackPromise??=import('./workshop/fallback.js').then(({WorkshopFallback})=>fallbackWorkshop=new WorkshopFallback(stage,mode=>go(mode==='workshop'?5:4,{immediate:true}),positionFallback));
+  fallbackPromise.then(f=>{f.sync({visible:startupReady&&[4,5].includes(index)&&!turning&&!contents,lang,reset:index!==5,direct:index===5});positionFallback();});
+ }
 }
-window.addEventListener('resize',()=>fallbackWorkshop?.position());
+window.addEventListener('resize',()=>{if(!scene)positionFallback();});
 function announce(){document.querySelector('#announcement').textContent=index<0?copy[lang].cover:index===5?workshopCopy[lang].title:index===4&&filmCompletionAnnounced?pageFilmCopy[lang].finished:copy[lang].chapters[index].label;}
 function address(){history.replaceState(null,'',`?lang=${lang}${rigTest?'&rig-test=1':filmTest?'&film-test=1':''}#${index<0?'cover':copy[lang].chapters[index].id}`);}
 async function stop(){run++;playing=false;scene?.setPaused(false);await scene?.finishMotion();index=targetIndex;turning=false;}
@@ -182,6 +249,11 @@ app.addEventListener('click',async ev=>{
  const b=ev.target.closest('button');if(!b)return;const action=b.dataset.action;
  if(b.classList.contains('page-hit')&&((suppressPageClick&&ev.detail!==0)||turning))return;
  if(action==='open'){intro();return;}
+ if(action==='reading-view'){
+  readerOverview=!readerOverview;
+  if(scene)getReadingView(isPortraitBook(stage.clientWidth,stage.clientHeight));else positionFallback();
+  return;
+ }
  if(action==='next'){advance();return;}
  if(action==='previous'){await go(targetIndex-1);return;}
  if(action==='language'){

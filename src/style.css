@@ -63,3 +63,71 @@ html[data-renderer=fallback] .rotation-arrows{display:none}
 .workshop-fallback-guide{position:absolute;background-size:800% 800%;background-repeat:no-repeat;pointer-events:none}
 .workshop-floor{position:absolute;pointer-events:auto;min-height:0;padding:0;background:transparent;touch-action:manipulation}.workshop-floor:focus-visible{outline:0;background:#fff8e51a;box-shadow:inset 0 0 0 2px #b18d65}
 .workshop-fallback-floor{position:absolute;inset:0;width:100%;height:100%;padding:0;background:transparent;touch-action:manipulation}.workshop-fallback-floor:focus-visible{outline:0;background:#fff8e51a;box-shadow:inset 0 0 0 2px #b18d65}
+.workshop-hit-plane{position:absolute;transform-origin:0 0;pointer-events:none}
+.workshop-hit-plane .workshop-shield{inset:8px}
+.book-film-decoder{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+
+.reading-toggle {
+  position: absolute;
+  z-index: 7;
+  left: 50%;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  min-height: 44px;
+  padding: 7px 17px;
+  border: 1px solid #ae9484;
+  border-radius: 5px;
+  background: #fcf4e8;
+  color: #63534d;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.stage[data-reading-portrait=true] { overflow: clip; }
+.page-turn-zones { left: var(--book-center-x, 50%); }
+[data-reading-portrait=true] .page-hit { position: absolute; width: auto; }
+[data-reading-portrait=true] .left-hit {
+  left: max(0px, calc(var(--book-width) / 2 - var(--book-center-x, 50vw)));
+  right: 50%;
+}
+[data-reading-portrait=true] .right-hit {
+  left: 50%;
+  right: max(0px, calc(var(--book-width) / 2 + var(--book-center-x, 50vw) - 100vw));
+}
+html[data-renderer=fallback] .spread {
+  left: var(--book-center-x, 50%);
+  top: var(--book-center-y, 50%);
+}
+html[data-renderer=fallback] [data-reading-portrait=true] .right-leaf { container-type: inline-size; }
+html[data-renderer=fallback] [data-reading-portrait=true] .printed-label { font-size: min(7cqw, 25px); }
+html[data-renderer=fallback] [data-reading-portrait=true] .printed-heading {
+  font-size: min(8cqw, 32px);
+  line-height: 1.12;
+}
+
+[data-reading-portrait=true] :is(.workshop-tools, .workshop-fallback-tools) {
+  left: 12px;
+  right: 12px;
+  bottom: calc(max(12px, env(safe-area-inset-bottom)) + 54px);
+  gap: 8px;
+}
+[data-reading-portrait=true] :is(.workshop-tools button, .workshop-fallback-tools button, .workshop-fallback-tools select) {
+  min-height: 44px;
+  padding: 5px 9px;
+  font-size: 13px;
+  background: #fff5e9f5;
+}
+[data-reading-portrait=true] :is(.workshop-description, .workshop-fallback-description) {
+  left: 12px;
+  right: 12px;
+  bottom: calc(max(12px, env(safe-area-inset-bottom)) + 106px);
+  margin: 0;
+  padding: 10px 48px 10px 12px;
+  font-size: 14px;
+}
+[data-reading-portrait=true] .workshop-description button { min-width: 44px; min-height: 44px; }
+[data-reading-portrait=true] .workshop-list {
+  inset: 70px 12px calc(max(12px, env(safe-area-inset-bottom)) + 106px);
+  padding: 8px 14px;
+}
+[data-reading-portrait=true] .workshop-list .workshop-dismiss { top: -8px; }

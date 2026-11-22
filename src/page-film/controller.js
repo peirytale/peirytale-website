@@ -4,7 +4,10 @@ const asset=name=>`${import.meta.env.BASE_URL}assets/castle-page-${name}`;
 export class PageFilm{
  constructor(renderer,onFrame,onState=()=>{},preloaded=null){
   this.preloaded=preloaded;this.renderer=renderer;this.onFrame=onFrame;this.onState=onState;this.active=false;this.complete=false;this.quiet=false;this.disposed=false;this.state='loading';this.abort=new AbortController();this.frames=0;this.generation=0;this.playWanted=false;this.recoveries=0;this.reloads=0;this.deliveredFrames=0;this.pendingSeek=null;
-  this.video=document.createElement('video');Object.assign(this.video,{muted:true,playsInline:true,controls:false,loop:false,preload:'auto',defaultPlaybackRate:pageFilmMedia.playbackRate,playbackRate:pageFilmMedia.playbackRate,disablePictureInPicture:true,disableRemotePlayback:true});this.video.setAttribute('playsinline','');
+  this.video=document.createElement('video');Object.assign(this.video,{muted:true,playsInline:true,controls:false,loop:false,preload:'auto',defaultPlaybackRate:pageFilmMedia.playbackRate,playbackRate:pageFilmMedia.playbackRate,disablePictureInPicture:true,disableRemotePlayback:true,hidden:true,tabIndex:-1,className:'book-film-decoder'});this.video.setAttribute('playsinline','');this.video.setAttribute('aria-hidden','true');
+  // Keep a painted video surface behind the opaque book canvas during
+  // playback so Chromium submits decoded frames at the display cadence.
+  renderer.domElement.before(this.video);
   this.sources=['film.mp4','film.webm'];this.sourceIndex=preloaded?this.sources.indexOf(preloaded.name.replace('castle-page-','')):this.video.canPlayType('video/mp4; codecs="avc1.64001f"')?0:1;this.sourceAssigned=false;
   this.target=new THREE.WebGLRenderTarget(960,672,{depthBuffer:false,stencilBuffer:false,generateMipmaps:false});this.target.texture.colorSpace=THREE.NoColorSpace;
   this.copyScene=new THREE.Scene();this.camera=new THREE.Camera();this.geometry=new THREE.PlaneGeometry(2,2);this.material=new THREE.ShaderMaterial({uniforms:{frame:{value:null},ornament:{value:null}},vertexShader:'varying vec2 vUv;void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}',fragmentShader:'uniform sampler2D frame,ornament;varying vec2 vUv;void main(){vec3 fixedInk=texture2D(ornament,vec2(vUv.x*.5,vUv.y)).rgb;float allowed=texture2D(ornament,vec2(.5+vUv.x*.5,vUv.y)).r;vec3 ink=fixedInk+(texture2D(frame,vUv).rgb-vec3(128./255.))*allowed;gl_FragColor=vec4(clamp(ink,0.,1.),1.);}',depthTest:false,depthWrite:false,blending:THREE.NoBlending,toneMapped:false});this.copyScene.add(new THREE.Mesh(this.geometry,this.material));
@@ -37,6 +40,7 @@ export class PageFilm{
  tick(){if(this.disposed||!this.pendingFrame||this.quiet||this.staticFinal||this.pendingSeek!==null||(!this.nativePlaying&&!this.finishedNaturally)||this.video.readyState<2)return false;this.pendingFrame=false;this.copy(this.videoTexture);this.frames++;this.emit();return true;}
  setActive(active,quiet=this.quiet,{retainComplete=false}={}){
   const resume=!retainComplete&&this.quiet&&!quiet&&this.complete&&!this.finishedNaturally&&this.finalState!=='fallback';this.active=active;
+  this.video.hidden=!active||quiet;
   if(quiet&&!this.quiet&&!(retainComplete&&this.complete))this.showFinal();this.quiet=quiet;
   if(resume){this.complete=false;this.staticFinal=false;this.state=this.blank?'ready':'loading';if(this.sourceAssigned)this.video.currentTime=0;if(this.blank)this.copy(this.blank);}
   this.sync();this.emit();
@@ -103,5 +107,5 @@ export class PageFilm{
  }
 
  restore(){if(this.complete&&this.final)this.copy(this.final);else if(this.video.readyState>=2){this.videoTexture.needsUpdate=true;this.copy(this.videoTexture);}else if(this.blank)this.copy(this.blank);}
- dispose(){if(this.disposed)return;this.disposed=true;this.generation++;this.playWanted=false;clearTimeout(this.watchTimer);this.abort.abort();if(this.frameRequest)this.video.cancelVideoFrameCallback(this.frameRequest);this.video.pause();this.videoTexture.dispose();this.video.removeAttribute('src');this.video.load();this.target.dispose();this.neutral.dispose();this.blank?.dispose();this.final?.dispose();this.border?.dispose();this.geometry.dispose();this.material.dispose();}
+ dispose(){if(this.disposed)return;this.disposed=true;this.generation++;this.playWanted=false;clearTimeout(this.watchTimer);this.abort.abort();if(this.frameRequest)this.video.cancelVideoFrameCallback(this.frameRequest);this.video.pause();this.videoTexture.dispose();this.video.removeAttribute('src');this.video.load();this.video.remove();this.target.dispose();this.neutral.dispose();this.blank?.dispose();this.final?.dispose();this.border?.dispose();this.geometry.dispose();this.material.dispose();}
 }

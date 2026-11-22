@@ -3,6 +3,7 @@ import {PageFilmCompositor} from './page-film/compositor.js';
 import {decodePageFilm,completionShader} from './page-film/shader.js';
 import {completionEffect} from './content/page-film.js';
 import {pageTypography,pageTextRows,pageStackAmount,pageHint} from './content/book.js';
+import {followReadingFrame,isPortraitBook,overviewFrame,readingFrame,readingZoomDuration,zoomReadingFrame} from './reading-frame.js';
 import {ClothCase,FRONT_BOARD_THICKNESS} from './cloth-case.js';
 import {createBookMarker,markerAttachment,createSpineBacking,updateSpineBacking} from './book-marker.js';
 import {createLeafGeometry,updateLeafGeometry,conformCoverEndpaper,leftStackThickness} from './page-geometry.js';
@@ -13,6 +14,7 @@ const smooth=p=>p*p*(3-2*p);
 export class BookScene{
  constructor(canvas,onReady){
   this.canvas=canvas;this.dirty=true;this.opened=false;this.progress=0;this.chapter=0;this.quiet=false;this.leftStack=0;
+  this.readingFrame=overviewFrame;this.framing=false;
   this.renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:false});
   this.renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));this.renderer.setClearColor(0xeeeae2);
   this.filmMap={value:null};this.filmMaterials=new Set();this.completionProgress={value:-1};this.canvas.dataset.completionEffect='none';this.supportsFilmCache=this.renderer.extensions.has('EXT_color_buffer_float');
@@ -98,6 +100,14 @@ export class BookScene{
   const p=new THREE.Vector3(paperHingeX(1)+(x/960-.5)*2*PAGE_WIDTH,(.5-y/672)*PAGE_HEIGHT,PAPER_SURFACE_Z+.002).applyMatrix4(this.book.matrixWorld).project(this.camera);
   return {x:(p.x+1)*this.canvas.clientWidth/2,y:(1-p.y)*this.canvas.clientHeight/2};
  }
+ pageProjection(){
+  // The orthographic projection of the paper plane is affine.
+  const origin=this.projectPagePoint(0,0),right=this.projectPagePoint(960,0),bottom=this.projectPagePoint(0,672);
+  return ([x,y])=>({
+   x:origin.x+(right.x-origin.x)*x/960+(bottom.x-origin.x)*y/672,
+   y:origin.y+(right.y-origin.y)*x/960+(bottom.y-origin.y)*y/672,
+  });
+ }
  unprojectPagePoint(clientX,clientY){
   const rect=this.canvas.getBoundingClientRect(),pointer=new THREE.Vector2((clientX-rect.left)/rect.width*2-1,1-(clientY-rect.top)/rect.height*2),ray=new THREE.Raycaster();
   this.scene.updateMatrixWorld(true);ray.setFromCamera(pointer,this.camera);
@@ -126,14 +136,56 @@ export class BookScene{
   }catch(error){this.canvas.dataset.outerCloth='unavailable';console.warn('Book cloth unavailable.',error.message);}
  }
  fit(){
-  this.filmCompositor?.invalidate();const w=this.canvas.clientWidth,h=this.canvas.clientHeight;if(!w||!h)return;
-  if(this.width!==w||this.height!==h){this.renderer.setSize(w,h,false);this.width=w;this.height=h;}const wasMobile=this.mobile;this.mobile=w<700;
-  // Retain both leaves on mobile: the specified black/white progression and
-  // complete spine must remain visible at every width.
-  const width=THREE.MathUtils.lerp(this.mobile?5.4:10.2,10.0,smooth(this.progress)),height=Math.max(8.8,width*h/w,6.9*h/Math.max(180,h-170));
-  this.camera.left=-height*w/h/2;this.camera.right=height*w/h/2;this.camera.top=height/2;this.camera.bottom=-height/2;this.camera.updateProjectionMatrix();
-  this.layout={width:2*PAGE_WIDTH*w/(height*w/h),height:PAGE_HEIGHT*h/height,x:w/2,y:h/2-this.book.position.y*h/height};this.ribbon.position.copy(markerAttachment(this.progress,this.mobile));
-  this.canvas.dispatchEvent(new CustomEvent('bookresize',{detail:this.layout}));if(wasMobile!==undefined&&wasMobile!==this.mobile&&this.page&&!this.animation)this.setSpread(this.page,this.chapter,this.lang);this.dirty=true;
+  const w=this.canvas.clientWidth,h=this.canvas.clientHeight;if(!w||!h)return;
+  const resized=this.width!==w||this.height!==h;
+  if(resized){this.renderer.setSize(w,h,false);this.width=w;this.height=h;}
+  const wasMobile=this.mobile;this.mobile=w<700;
+  const width=THREE.MathUtils.lerp(this.mobile?5.4:10.2,10.0,smooth(this.progress));
+  this.overviewHeight=Math.max(8.8,width*h/w,6.9*h/Math.max(180,h-170));
+  this.ribbon.position.copy(markerAttachment(this.progress,this.mobile));
+  if(resized)this.updateReadingFrame(0,true);
+  this.applyReadingFrame();
+  if(wasMobile!==undefined&&wasMobile!==this.mobile&&this.page&&!this.animation)this.setSpread(this.page,this.chapter,this.lang);
+ }
+ applyReadingFrame(){
+  const {scale,center,lift}=this.readingFrame,w=this.width,h=this.height;
+  const height=this.overviewHeight/scale,pixels=h/height,halfWidth=height*w/h/2;
+  const x=(center-.5)*2*PAGE_WIDTH;
+  // Preserve the overview's vertical position while changing magnification.
+  const y=this.book.position.y*(1-1/scale)-lift/pixels;
+  Object.assign(this.camera,{left:x-halfWidth,right:x+halfWidth,top:y+height/2,bottom:y-height/2});
+  this.camera.updateProjectionMatrix();
+  this.layout={width:2*PAGE_WIDTH*pixels,height:PAGE_HEIGHT*pixels,x:w/2-x*pixels,y:h/2-(this.book.position.y-y)*pixels};
+  this.filmCompositor?.invalidate();
+  this.dirty=true;
+  this.canvas.dispatchEvent(new CustomEvent('bookresize',{detail:this.layout}));
+ }
+ updateReadingFrame(elapsed,resize=false,turnTime=Infinity){
+  const w=this.width,h=this.height,pixels=h/this.overviewHeight;
+  const portrait=isPortraitBook(w,h);
+  const view=this.getReadingView?.(portrait);
+  const current=this.readingFrame;
+  const target=readingFrame(w,h,2*PAGE_WIDTH*pixels,PAGE_HEIGHT*pixels,view,current);
+  const instant=resize||!portrait||view?.instant;
+  const zoom=this.readingZoom;
+  const limit=target.scale===1?turnTime:Infinity;
+  if(instant)this.readingZoom=null;
+  else if(target.scale!==(zoom?.scale??current.scale)||zoom&&zoom.duration-zoom.elapsed>limit+.01){
+   // Finish a pullback alongside the leaf so the next scene opens in full.
+   this.readingZoom={from:current,scale:target.scale,duration:Math.min(readingZoomDuration,limit),elapsed:0};
+  }
+  let next=target;
+  if(this.readingZoom){
+   const zoom=this.readingZoom;
+   zoom.elapsed+=elapsed;
+   const progress=Math.min(1,zoom.elapsed/zoom.duration);
+   next=zoomReadingFrame(zoom.from,target,progress);
+   if(progress===1)this.readingZoom=null;
+  }else if(!instant)next=followReadingFrame(current,target,elapsed);
+  const changing=next.scale!==current.scale||next.center!==current.center||next.lift!==current.lift;
+  if(this.framing&&!changing)this.dirty=true;
+  this.framing=!instant&&(changing||Boolean(this.readingZoom));
+  if(changing){this.readingFrame=next;if(!resize)this.applyReadingFrame();}
  }
  pose(p){
   this.filmCompositor?.invalidate();this.renderer.shadowMap.needsUpdate=true;this.progress=p;const thickness=leftStackThickness(this.leftStack),rootLift=rightSurfaceZ(p,this.leftStack)-PAPER_SURFACE_Z;
@@ -259,13 +311,16 @@ export class BookScene{
  canCachePageFilm(){
   // animate() resolves before turn() commits its spread and hides its leaf.
   // A finished animation clock alone must never enable the paper UV cache.
-  return this.supportsFilmCache&&this.mediaTexture(this.page?.id)&&this.opened&&this.progress===1&&this.bindingMotion==='open'&&!this.animation&&!this.hint&&!this.sheets.some(s=>s.visible);
+  return this.supportsFilmCache&&this.mediaTexture(this.page?.id)&&this.opened&&this.progress===1&&this.bindingMotion==='open'&&!this.animation&&!this.framing&&!this.hint&&!this.sheets.some(s=>s.visible);
  }
  tick(now){
   const dt=Math.max(0,now-(this.lastTick??now));this.lastTick=now;
+  const turn=this.bindingMotion==='turning'?this.animation:null;
+  const turnTime=turn?turn.duration-turn.elapsed:Infinity;
   if(this.animation||this.hint)this.renderer.shadowMap.needsUpdate=true;
   if(this.animation&&!this.paused&&!document.hidden){const a=this.animation;a.elapsed+=Math.min(dt,Math.max(0,now-a.started));const p=a.duration?Math.min(1,a.elapsed/a.duration):1;a.update(a.linear?p:smooth(p));if(a.paint)this.dirty=true;if(p===1){this.animation=null;a.resolve(true);}}
   this.updatePageHint(dt);this.updateCompletionSparkle(dt);if(this.pageFilm?.tick()){this.updatePageFilmMaps();this.dirty=true;}
+  if(!document.hidden)this.updateReadingFrame(dt,false,turnTime);
   if(this.dirty){if(this.canCachePageFilm()){this.canvas.dataset.renderPath='film-cache';this.filmCompositor??=new PageFilmCompositor(this.renderer,this.blocks,{background:[this.table,this.contactShadow,this.ribbon],foreground:this.book.children.filter(o=>o!==this.ribbon),completionProgress:this.completionProgress});this.filmCompositor.render(this.scene,this.camera,this.filmMap.value);}else{this.canvas.dataset.renderPath='physical';this.renderer.render(this.scene,this.camera);}this.canvas.dataset.drawCalls=String(this.renderer.info.render.calls);this.canvas.dataset.triangles=String(this.renderer.info.render.triangles);this.canvas.dataset.textures=String(this.renderer.info.memory.textures);this.dirty=false;this.canvas.dataset.renderCount=String((Number(this.canvas.dataset.renderCount)||0)+1);if(this.hint&&this.hint.started===null&&!this.animation)this.hint.started=now;}
   this.frame=requestAnimationFrame(this.tick);
  }
