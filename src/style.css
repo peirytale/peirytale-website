@@ -84,6 +84,18 @@ html[data-renderer=fallback] .rotation-arrows{display:none}
 }
 
 .stage[data-reading-portrait=true] { overflow: clip; }
+.stage[data-reading-pannable=true] :is(.page-hit, #castle-enter, .workshop-hit-plane, .workshop-fallback-art) {
+  cursor: grab;
+  touch-action: pan-y pinch-zoom;
+  user-select: none;
+}
+.stage[data-reading-pannable=true] :is(.workshop-hit, .workshop-floor, .workshop-fallback-floor) {
+  cursor: grab;
+}
+.stage[data-reading-dragging=true],
+.stage[data-reading-dragging=true] :is(.page-hit, #castle-enter, .workshop-hit-plane, .workshop-hit, .workshop-floor, .workshop-fallback-art, .workshop-fallback-floor) {
+  cursor: grabbing;
+}
 .page-turn-zones { left: var(--book-center-x, 50%); }
 [data-reading-portrait=true] .page-hit { position: absolute; width: auto; }
 [data-reading-portrait=true] .left-hit {
@@ -131,3 +143,16 @@ html[data-renderer=fallback] [data-reading-portrait=true] .printed-heading {
   padding: 8px 14px;
 }
 [data-reading-portrait=true] .workshop-list .workshop-dismiss { top: -8px; }
+
+.workshop-description [data-teacup-outfit],
+.workshop-fallback-description [data-teacup-outfit] {
+  position: static;
+  display: block;
+  align-self: flex-start;
+  min-height: 32px;
+  padding: 3px 0;
+  color: #704a40;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}

@@ -15,9 +15,9 @@ export class WorkshopChapter{
  get texture(){return ['workshop','prepared'].includes(this.mode)?this.workshop.texture:this.mode==='revealing'?this.target.texture:this.adventure.texture;}
  prepare(){if(this.workshop.loaded)return Promise.resolve();if(this.preparation)return this.preparation;this.error=null;this.preparing=true;this.emit();this.preparation=(async()=>{try{await this.workshop.prepare();}catch(e){this.error=e.message;}finally{this.preparing=false;this.preparation=null;this.emit();}})();return this.preparation;}
  setActive(active,quiet=false){this.active=active;this.quiet=quiet;this.last=null;this.actor.setQuiet(quiet);this.adventure.setActive(active&&this.mode==='castle',quiet);if(quiet&&this.mode==='revealing')this.enter();this.emit();}
- cancel(){this.directRequested=false;this.mode='castle';this.time=0;this.last=null;this.workshop.cancelInteraction();this.actor.stop();this.workshop.resetPose();this.workshop.selected=null;this.workshop.draw();this.adventure.cancel();this.emit();}
+ cancel(){this.directRequested=false;this.mode='castle';this.time=0;this.last=null;this.workshop.cancelInteraction();this.actor.stop();this.workshop.selected=null;this.workshop.draw();this.adventure.cancel();this.emit();}
  back(){this.cancel();this.adventure.setActive(this.active,this.quiet);this.onFrame();}
- prepareDirectView(){this.workshop.cancelInteraction();this.actor.stop();this.workshop.resetPose();this.workshop.selected=null;this.workshop.draw();this.mode='prepared';this.time=0;this.adventure.setActive(false,this.quiet);this.emit();this.onFrame();}
+ prepareDirectView(){this.workshop.cancelInteraction();this.actor.stop();this.workshop.selected=null;this.workshop.draw();this.mode='prepared';this.time=0;this.adventure.setActive(false,this.quiet);this.emit();this.onFrame();}
  reveal(){this.mode='revealing';this.time=0;this.last=null;this.adventure.setActive(false,this.quiet);this.blend(0);this.emit();if(this.quiet)this.enter();}
  enter(){this.directRequested=false;this.mode='workshop';this.time=0;this.adventure.setActive(false,this.quiet);this.actor.enter(this.quiet);this.workshop.dirty=true;this.workshop.draw();this.emit();this.onFrame();}
  tick(){
@@ -33,7 +33,7 @@ export class WorkshopChapter{
   if(this.mode!=='workshop')return false;
   // Match the castle guide's wall-clock travel even on a slow renderer. The
   // shared active/visibility gate above already resets time during real pauses.
-  const actorChanged=this.actor.tick(elapsed,this.quiet);return this.workshop.tick(dt,this.quiet)||actorChanged;
+  const actorChanged=this.actor.tick(elapsed,this.quiet);return this.workshop.draw()||actorChanged;
  }
  blend(amount){const r=this.adventure.renderer,previous=r.getRenderTarget(),auto=r.autoClear;this.material.uniforms.gold.value=this.adventure.texture;this.material.uniforms.reveal.value=amount;try{r.autoClear=true;r.setRenderTarget(this.target);r.render(this.scene,this.camera);}finally{r.setRenderTarget(previous);r.autoClear=auto;}this.onFrame();}
  emit(){if(this.disposed)return;const state={mode:this.mode,directRequested:Boolean(this.directRequested),loading:this.preparing,error:this.error,waiting:this.adventure.state==='lit'&&this.mode==='castle',selected:this.workshop.selected,actorState:this.actor?.state||'hidden',actorTarget:this.actor?.target||null},key=JSON.stringify(state);if(key===this.emission)return;this.emission=key;this.onState(state);}

@@ -137,7 +137,7 @@ export class RunningGuideRig extends GuideRig{
  }
  // The workshop uses this same articulated outfit right through weight zero.
  // The castle keeps its separately authored frame-zero doorway pose.
- drawArticulated(row,phase,weight,strideMultiplier=1){
+ drawArticulated(row,phase,weight,strideMultiplier=1,legsOnly=false){
   if(this.disposed)return this.texture;
   const v=this.runViews.get(row)||this.prepareRun(row),o=v.original,d=o.data.def;
   for(const current of this.views.values())current.group.visible=current===o;
@@ -150,6 +150,11 @@ export class RunningGuideRig extends GuideRig{
   const sleeveProjection=Math.min(1,sideProjection*1.9);
   let rank=0;const order=p=>p.mesh.renderOrder=rank++,curve=(part,source,target,rotation,projection=sideProjection)=>this.deform(part,p=>attachedLimbPoint(p,source,target,rotation,projection)),rigid=(part,from,to,angle=0)=>this.deform(part,p=>rigidPoint(p,from,to,angle));
   const leg=side=>{const a=v.record.legs[side],b=pose.legs[side],m=v.legs[side];this.deform(m.skin,p=>paintedLegPoint(p,a,b));rigid(m.shoe,a.ankle,b.ankle,b.shoeAngle);for(const p of [m.skin,m.shoe])order(p);};
+  d.legOrder.forEach(leg);
+  if(legsOnly){
+   for(const part of o.meshes)part.mesh.visible=v.legs.some(({skin,shoe})=>part===skin||part===shoe);
+   this.render();return this.texture;
+  }
   const arm=side=>{
    const a=v.record.arms[side],b=pose.arms[side],m=v.arms[side];
    if(m.forearm){
@@ -161,7 +166,7 @@ export class RunningGuideRig extends GuideRig{
    else rigid(m.hand,a.wrist,b.wrist,b.handAngle);
    order(m.sleeve);if(m.forearm)order(m.forearm);order(m.hand);
   };
-  d.legOrder.forEach(leg);for(let side=0;side<2;side++)if(!d.frontArms.includes(side))arm(side);v.body.mesh.position.y=(v.face||o.head).mesh.position.y=pose.bodyY;order(v.body);d.frontArms.forEach(arm);
+  for(let side=0;side<2;side++)if(!d.frontArms.includes(side))arm(side);v.body.mesh.position.y=(v.face||o.head).mesh.position.y=pose.bodyY;order(v.body);d.frontArms.forEach(arm);
   if(v.sideCover){
    // The projecting forearm curls up in front of its own shoulder.
    v.shoulders.mesh.position.y=pose.bodyY;order(v.shoulders);

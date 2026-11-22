@@ -23,13 +23,20 @@ export class WorkshopActor{
   this.group=new THREE.Group();this.group.name='workshop-guide';this.group.visible=false;
   const clip=()=>({value:new THREE.Vector4(...config.clip)});
   this.material=new THREE.ShaderMaterial({uniforms:{atlas:{value:this.atlas},flowMap:{value:this.flow},silhouette:{value:this.silhouette},cell:{value:new THREE.Vector2(0,6)},nextCell:{value:new THREE.Vector2(0,6)},flowCell:{value:new THREE.Vector2()},feet:{value:new THREE.Vector4()},nextFeet:{value:new THREE.Vector4()},poseMix:{value:0},flowScale:{value:clips.flowRange/clips.flowCell},useFlow:{value:false},clip:clip()},vertexShader:vertex,fragmentShader:fragment,transparent:true,depthWrite:false,depthTest:false,toneMapped:false,side:THREE.DoubleSide});
-  Object.assign(this.material.uniforms,{guideAtlas:{value:guide.texture},useGuide:{value:false}});
+  Object.assign(this.material.uniforms,{guideAtlas:{value:guide.texture},useGuide:{value:false},
+   wearDress:{value:false},dressAtlas:{value:null},dressFlow:{value:null},
+   dressPhase:{value:0},dressWeight:{value:0},departing:{value:false}});
   this.geometry=new THREE.PlaneGeometry(1,1);this.sprite=new THREE.Mesh(this.geometry,this.material);this.sprite.name='workshop-guide-sprite';this.sprite.renderOrder=2;
   this.spritePivot=new THREE.Group();this.spritePivot.add(this.sprite);this.group.add(this.spritePivot);
   this.shadowMaterial=new THREE.ShaderMaterial({uniforms:{opacity:{value:0},clip:clip()},vertexShader:vertex,fragmentShader:shadowFragment,transparent:true,depthWrite:false,depthTest:false,toneMapped:false,side:THREE.DoubleSide});
   this.shadowGeometry=new THREE.PlaneGeometry(1,1);this.shadow=new THREE.Mesh(this.shadowGeometry,this.shadowMaterial);this.shadow.name='workshop-guide-shadow';this.shadow.renderOrder=1;this.group.add(this.shadow);
   this.detach=workshop.attachActor(this.group);workshop.setActorAdapter(this);
   this.updateFrame();
+ }
+ setDress(wear){
+  this.wearDress=wear;
+  this.updateFrame();
+  this.workshop.draw();
  }
  getPosition(){return [...this.position];}
  setState(state){if(this.state===state)return;this.state=state;this.onState();}
@@ -120,7 +127,15 @@ export class WorkshopActor{
   }
   const active=weight>1e-4;this.height=height;this.gaitPhase=this.phase=phase;this.gaitWeight=weight;const cell=phase*12;this.frame=active?1+Math.floor(cell):0;this.nextFrame=active?1+(Math.floor(cell)+1)%12:0;this.poseMix=active?cell-Math.floor(cell):0;
   if(this.group.visible){
-   this.guide.drawArticulated(this.row,phase,weight,config.running.strideMultiplier);
+   const u=this.material.uniforms;
+   u.wearDress.value=Boolean(this.wearDress);
+   if(this.wearDress){
+    u.dressAtlas.value=this.workshop.dressAtlas;
+    u.dressFlow.value=this.workshop.dressFlow;
+    u.dressPhase.value=phase;u.dressWeight.value=weight;
+    u.departing.value=Boolean(this.motion&&this.elapsed<.1);
+   }
+   this.guide.drawArticulated(this.row,phase,weight,config.running.strideMultiplier,this.wearDress);
    this.material.uniforms.cell.value.set(0,this.row);
    this.material.uniforms.useGuide.value=true;
    this.material.uniforms.useFlow.value=false;

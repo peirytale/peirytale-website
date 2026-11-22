@@ -1,3 +1,4 @@
+import {teacupShader} from './teacup-shader.js';
 import {guideProportions} from '../guide-rig/proportions.js';
 // Same atlas/flow sampling and pigment encoding as the castle guide. Both
 // meshes live in the room's dynamic group and never enter its resting baseline.
@@ -49,6 +50,12 @@ vec4 runningPose(vec2 uv){
  // Do not invent a dark fringe where both original samples are transparent.
  return vec4(color,min(coverage(d),(wa+wb)*255.));
 }
-void main(){vec4 sprite;if(useGuide){vec2 q=(guideSource((p*320.-32.)/256.,cell.y)*256.+32.)/320.;vec4 c=texture2D(guideAtlas,vec2(q.x,1.-q.y));sprite=vec4(linearRGB(c.rgb/max(c.a,.00001)),c.a);}else sprite=runningPose(p);float alpha=sprite.a*paperClip();if(alpha<.003)discard;gl_FragColor=vec4(encode(sprite.rgb),alpha);}`;
+${teacupShader}
+void main(){vec4 sprite;if(useGuide){vec2 q=(guideSource((p*320.-32.)/256.,cell.y)*256.+32.)/320.;vec4 c=texture2D(guideAtlas,vec2(q.x,1.-q.y));sprite=vec4(linearRGB(c.rgb/max(c.a,.00001)),c.a);if(wearDress){
+  vec4 cloth=dressPose((p*320.-(320.-dressSize)*.5)/dressSize);
+  float alpha=cloth.a+sprite.a*(1.-cloth.a);
+  sprite=vec4((cloth.rgb+sprite.rgb*sprite.a*(1.-cloth.a))/max(.00001,alpha),alpha);
+ }
+ }else sprite=runningPose(p);float alpha=sprite.a*paperClip();if(alpha<.003)discard;gl_FragColor=vec4(encode(sprite.rgb),alpha);}`;
 export const shadowFragment=`uniform float opacity;varying vec2 p;${clipping}
 void main(){vec2 q=(p-.5)*2.;float alpha=exp(-dot(q,q)*3.)*opacity*paperClip();if(alpha<.003)discard;gl_FragColor=vec4(encode(vec3(.42,.37,.33)),alpha);}`;

@@ -155,7 +155,7 @@ export class BookScene{
   const y=this.book.position.y*(1-1/scale)-lift/pixels;
   Object.assign(this.camera,{left:x-halfWidth,right:x+halfWidth,top:y+height/2,bottom:y-height/2});
   this.camera.updateProjectionMatrix();
-  this.layout={width:2*PAGE_WIDTH*pixels,height:PAGE_HEIGHT*pixels,x:w/2-x*pixels,y:h/2-(this.book.position.y-y)*pixels};
+  this.layout={width:2*PAGE_WIDTH*pixels,height:PAGE_HEIGHT*pixels,x:w/2-x*pixels,y:h/2-(this.book.position.y-y)*pixels,scale};
   this.filmCompositor?.invalidate();
   this.dirty=true;
   this.canvas.dispatchEvent(new CustomEvent('bookresize',{detail:this.layout}));
@@ -181,7 +181,7 @@ export class BookScene{
    const progress=Math.min(1,zoom.elapsed/zoom.duration);
    next=zoomReadingFrame(zoom.from,target,progress);
    if(progress===1)this.readingZoom=null;
-  }else if(!instant)next=followReadingFrame(current,target,elapsed);
+  }else if(!instant&&view?.center==null)next=followReadingFrame(current,target,elapsed);
   const changing=next.scale!==current.scale||next.center!==current.center||next.lift!==current.lift;
   if(this.framing&&!changing)this.dirty=true;
   this.framing=!instant&&(changing||Boolean(this.readingZoom));

@@ -7,6 +7,11 @@ const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 // rather than the user agent or the screen orientation API, determines the fit.
 export const isPortraitBook = (width, height) => width < 700 && height > width;
 
+export function clampReadingCenter(center, visible) {
+  const edge = clamp(visible / 2 - .02, 0, .5);
+  return clamp(center, edge, 1 - edge);
+}
+
 export function readingFrame(width, height, pageWidth, pageHeight, view, previous) {
   if (!isPortraitBook(width, height) || !view?.chapter) return overviewFrame;
   const span = view.chapter === 'workshop' ? .60 : .62;
@@ -14,6 +19,7 @@ export function readingFrame(width, height, pageWidth, pageHeight, view, previou
   if (scale === 1) return overviewFrame;
 
   const visible = width / (pageWidth * scale);
+  if (view.center != null) return { scale, center: clampReadingCenter(view.center, visible), lift: 26 };
   let center = .5;
   if (view.chapter === 'text') center = Math.max(.5, 1.025 - visible / 2);
   if (view.chapter === 'workshop') {
@@ -28,8 +34,7 @@ export function readingFrame(width, height, pageWidth, pageHeight, view, previou
       const half = visible * .45;
       if (right - left <= half * 2) center = clamp(center, right - half, left + half);
     }
-    const edge = Math.min(.5, visible / 2 - .02);
-    center = clamp(center, edge, 1 - edge);
+    center = clampReadingCenter(center, visible);
   }
   return { scale, center, lift: 26 };
 }

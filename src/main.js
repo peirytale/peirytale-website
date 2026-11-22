@@ -7,14 +7,14 @@ import {AssetLoader} from './asset-loader.js';
 import {loadingCopy} from './content/loading.js';
 import {adventure as adventureConfig,adventureCopy} from './castle-adventure/config.js';
 import {workshopCopy,room as workshopRoom,objects,toPage} from './workshop/layout.js';
-import {isPortraitBook,overviewFrame,readingFrame} from './reading-frame.js';
+import {clampReadingCenter,isPortraitBook,overviewFrame,readingFrame} from './reading-frame.js';
 const app=document.querySelector('#app');
 const stored=(k,d)=>{try{return localStorage.getItem(k)||d}catch{return d}};
 const save=(k,v)=>{try{localStorage.setItem(k,v)}catch{}};
 let lang=new URLSearchParams(location.search).get('lang')||stored('peiry-language','zh-TW');if(!copy[lang])lang='zh-TW';
 const motionQuery=matchMedia('(prefers-reduced-motion: reduce)');
 let quiet=motionQuery.matches;
-let index=-1,targetIndex=-1,playing=false,turning=false,contents=false,run=0,navigation=0,scene,rotationDrag,pageDrag,suppressPageClick=false;
+let index=-1,targetIndex=-1,playing=false,turning=false,contents=false,run=0,navigation=0,scene,rotationDrag,pageDrag,suppressPointerClick=false;
 let film,filmPromise,rig,rigPromise,adventure,chapter,workshopUI,fallbackWorkshop,fallbackPromise,rigHandoff=false,filmCompletionAnnounced=false,startupReady=false,preloadedVideo=null;
 let directWorkshop=location.hash==='#workshop',workshopBridge=null,handoffIntent=0;
 const music=new Music(updateMusic);
@@ -24,16 +24,18 @@ const filmTest=rigTest||import.meta.env.DEV&&new URLSearchParams(location.search
 const e=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 app.innerHTML=`<main class="stage"><canvas id="world" aria-hidden="true"></canvas><div id="book-ui"></div><div class="rotation-arrows" aria-hidden="true"><svg class="rotation-arrow left" viewBox="0 0 64 72"><defs><linearGradient id="arrow-ink" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#e0cbbc"/><stop offset=".55" stop-color="#a98280"/><stop offset="1" stop-color="#735e60"/></linearGradient></defs><path d="M51 11C27 13 16 25 16 39c0 10 6 16 17 19"/><path d="m25 50 9 9-12 3"/></svg><svg class="rotation-arrow right" viewBox="0 0 64 72"><path d="M51 11C27 13 16 25 16 39c0 10 6 16 17 19"/><path d="m25 50 9 9-12 3"/></svg></div><div id="cover-copy" class="cover-heading"></div><button id="open-prompt" class="open-book" data-action="open"></button><p id="announcement" class="sr-only" aria-live="polite"></p></main>`;
 const canvas=document.querySelector('#world'),ui=document.querySelector('#book-ui'),coverCopy=document.querySelector('#cover-copy'),openPrompt=document.querySelector('#open-prompt'),arrows=document.querySelector('.rotation-arrows');
-const stage=canvas.parentElement,readingToggle=document.createElement('button');
+const stage=canvas.parentElement,readingToggle=document.createElement('button'),readingHelp=document.createElement('p');
 readingToggle.className='reading-toggle';
 readingToggle.dataset.action='reading-view';
 readingToggle.hidden=true;
-stage.append(readingToggle);
+readingHelp.id='reading-help';
+readingHelp.className='sr-only';
+stage.append(readingToggle,readingHelp);
 const workshopBounds=new Map(objects.map(({id,polygon})=>{
  const xs=polygon.map(point=>toPage(point)[0]/workshopRoom.size[0]);
  return [id,[Math.min(...xs),Math.max(...xs)]];
 }));
-let readerOverview=false;
+let readerOverview=false,readingCenter=null,readingLayout;
 const textSpread=page=>page===2||page===3;
 function getReadingView(portrait){
  if((stage.dataset.readingPortrait==='true')!==portrait)stage.dataset.readingPortrait=String(portrait);
@@ -49,7 +51,9 @@ function getReadingView(portrait){
  if(readingToggle.hidden!==hidden)readingToggle.hidden=hidden;
  const label=readingViewCopy[lang][readerOverview?'detail':'overview'];
  if(readingToggle.textContent!==label)readingToggle.textContent=label;
- const view={chapter:readerOverview?null:chapterView,instant:quiet||!startupReady};
+ const help=readingViewCopy[lang].pan;
+ if(readingHelp.textContent!==help)readingHelp.textContent=help;
+ const view={chapter:readerOverview?null:chapterView,instant:quiet||!startupReady,center:readingCenter};
  if(view.chapter==='workshop'){
   const point=actor?.getPosition()||fallbackWorkshop?.getPoint()||workshopRoom.entry;
   view.subject=toPage(point)[0]/workshopRoom.size[0];
@@ -57,7 +61,14 @@ function getReadingView(portrait){
  }
  return view;
 }
-function positionReadingUI({width,height,x,y}){
+function positionReadingUI({width,height,x,y,scale}){
+ readingLayout={width,x};
+ const pannable=scale>1&&width>(scene?.width??stage.clientWidth)+1;
+ if((stage.dataset.readingPannable==='true')!==pannable){
+  stage.dataset.readingPannable=String(pannable);
+  if(pannable)readingToggle.setAttribute('aria-describedby',readingHelp.id);
+  else readingToggle.removeAttribute('aria-describedby');
+ }
  ui.style.setProperty('--book-width',`${width}px`);
  ui.style.setProperty('--book-height',`${height}px`);
  ui.style.setProperty('--book-center-x',`${x}px`);
@@ -70,8 +81,10 @@ function positionFallback(){
   const width=Math.min(.84*w,(h-160)*1.428571,943),height=Math.min(.588*w,h-160,660);
   const frame=readingFrame(w,h,width,height,{...view,instant:true},overviewFrame);
   positionReadingUI({width:width*frame.scale,height:height*frame.scale,
-   x:w/2-(frame.center-.5)*width*frame.scale,y:h/2-frame.lift});
+   x:w/2-(frame.center-.5)*width*frame.scale,y:h/2-frame.lift,scale:frame.scale});
  }else{
+  stage.dataset.readingPannable='false';
+  readingToggle.removeAttribute('aria-describedby');
   for(const property of ['--book-width','--book-height','--book-center-x','--book-center-y'])ui.style.removeProperty(property);
  }
  fallbackWorkshop?.position();
@@ -175,7 +188,7 @@ function render(){
  if(scene)getReadingView(isPortraitBook(stage.clientWidth,stage.clientHeight));
  else{
   positionFallback();
-  fallbackPromise??=import('./workshop/fallback.js').then(({WorkshopFallback})=>fallbackWorkshop=new WorkshopFallback(stage,mode=>go(mode==='workshop'?5:4,{immediate:true}),positionFallback));
+  fallbackPromise??=import('./workshop/fallback.js').then(({WorkshopFallback})=>fallbackWorkshop=new WorkshopFallback(stage,mode=>go(mode==='workshop'?5:4,{immediate:true}),()=>{readingCenter=null;positionFallback();}));
   fallbackPromise.then(f=>{f.sync({visible:startupReady&&[4,5].includes(index)&&!turning&&!contents,lang,reset:index!==5,direct:index===5});positionFallback();});
  }
 }
@@ -184,7 +197,7 @@ function announce(){document.querySelector('#announcement').textContent=index<0?
 function address(){history.replaceState(null,'',`?lang=${lang}${rigTest?'&rig-test=1':filmTest?'&film-test=1':''}#${index<0?'cover':copy[lang].chapters[index].id}`);}
 async function stop(){run++;playing=false;scene?.setPaused(false);await scene?.finishMotion();index=targetIndex;turning=false;}
 async function move(next,{immediate=false,duration=sequence.leafTurn,ticket=null}={}){
- const page=copy[lang].chapters[next];targetIndex=next;turning=true;render();
+ const page=copy[lang].chapters[next];readingCenter=null;targetIndex=next;turning=true;render();
  if(next<0)await scene?.close(quiet||immediate);
  else if(index<0){scene?.setSpread(page,next,lang);await scene?.open(quiet||immediate,sequence.opening);}
  else await scene?.turn(page,next,lang,{duration,quiet:quiet||immediate});
@@ -247,10 +260,10 @@ app.addEventListener('click',async ev=>{
  if(!startupReady)return;
  const anchor=ev.target.closest('a[href^="#"]');if(anchor){ev.preventDefault();await goToHash(anchor.hash);return;}
  const b=ev.target.closest('button');if(!b)return;const action=b.dataset.action;
- if(b.classList.contains('page-hit')&&((suppressPageClick&&ev.detail!==0)||turning))return;
+ if(b.classList.contains('page-hit')&&turning)return;
  if(action==='open'){intro();return;}
  if(action==='reading-view'){
-  readerOverview=!readerOverview;
+  readerOverview=!readerOverview;readingCenter=null;
   if(scene)getReadingView(isPortraitBook(stage.clientWidth,stage.clientHeight));else positionFallback();
   return;
  }
@@ -279,21 +292,63 @@ window.addEventListener('keydown',ev=>{
  if(ev.key==='ArrowRight'){ev.preventDefault();advance();}
  if(ev.key==='ArrowLeft'&&targetIndex>=0){ev.preventDefault();go(targetIndex-1);}
 });
-ui.addEventListener('pointerdown',ev=>{
- if(index<0&&!turning&&ev.target.closest?.('.book-rotation')&&ev.isPrimary&&ev.button===0){rotationDrag={id:ev.pointerId,x:ev.clientX,y:ev.clientY};ui.setPointerCapture(ev.pointerId);ev.preventDefault();return;}
+const panSurface='.page-hit, #castle-enter, .workshop-hit-plane, .workshop-fallback-art';
+const closeUp=()=>!readerOverview&&stage.dataset.readingPannable==='true';
+const resetReadingCenter=event=>{if(!event.defaultPrevented)readingCenter=null;};
+stage.addEventListener('workshop:interact',resetReadingCenter);
+stage.addEventListener('workshop:walk',resetReadingCenter);
+stage.addEventListener('pointerdown',ev=>{
+ if(!ev.isPrimary||ev.button!==0||pageDrag||rotationDrag)return;
+ suppressPointerClick=false;
+ if(!startupReady||turning||contents)return;
+ if(index<0&&ev.target.closest('.book-rotation')){rotationDrag={id:ev.pointerId,x:ev.clientX,y:ev.clientY};ui.setPointerCapture(ev.pointerId);ev.preventDefault();return;}
  const leaf=ev.target.closest('.page-hit');
- if(leaf&&index>=0&&!turning&&!contents&&ev.isPrimary&&ev.button===0){suppressPageClick=false;pageDrag={id:ev.pointerId,x:ev.clientX,y:ev.clientY,target:leaf};leaf.setPointerCapture(ev.pointerId);}
+ if(closeUp()&&ev.target.closest(panSurface)){
+  pageDrag={id:ev.pointerId,x:ev.clientX,y:ev.clientY,pan:true};
+ }else if(leaf){
+  pageDrag={id:ev.pointerId,x:ev.clientX,y:ev.clientY};
+  leaf.setPointerCapture(ev.pointerId);
+ }
 });
 ui.addEventListener('pointermove',ev=>{if(rotationDrag?.id!==ev.pointerId)return;scene?.rotateInspection(ev.clientX-rotationDrag.x,ev.clientY-rotationDrag.y);rotationDrag.x=ev.clientX;rotationDrag.y=ev.clientY;ev.preventDefault();});
-ui.addEventListener('pointerup',ev=>{
- if(rotationDrag){rotationDrag=null;if(ui.hasPointerCapture(ev.pointerId))ui.releasePointerCapture(ev.pointerId);return;}
+window.addEventListener('pointermove',ev=>{
+ const drag=pageDrag;
+ if(!drag?.pan||drag.id!==ev.pointerId||turning||contents||!closeUp()||scene?.readingZoom)return;
+ const dx=ev.clientX-drag.x,dy=ev.clientY-drag.y;
+ if(!drag.active){
+  if(Math.abs(dy)>12&&Math.abs(dy)>=Math.abs(dx)){drag.vertical=true;return;}
+  if(drag.vertical||Math.abs(dx)<10||Math.abs(dx)<=Math.abs(dy)*1.35)return;
+  drag.active=true;
+  suppressPointerClick=true;
+  stage.dataset.readingDragging='true';
+  stage.setPointerCapture(ev.pointerId);
+ }
+ const {width,x}=readingLayout,visible=(scene?.width??stage.clientWidth)/width;
+ const center=clampReadingCenter(readingCenter??(.5+visible/2-x/width),visible);
+ readingCenter=clampReadingCenter(center-dx/width,visible);
+ drag.x=ev.clientX;
+ if(!scene)positionFallback();
+ ev.preventDefault();
+});
+window.addEventListener('pointerup',ev=>{
+ if(rotationDrag?.id===ev.pointerId){rotationDrag=null;return;}
  if(pageDrag?.id!==ev.pointerId)return;const drag=pageDrag,dx=ev.clientX-drag.x,dy=ev.clientY-drag.y;pageDrag=null;
- if(drag.target.hasPointerCapture(ev.pointerId))drag.target.releasePointerCapture(ev.pointerId);
- const moved=Math.hypot(dx,dy)>12;suppressPageClick=moved;
+ if(drag.pan){
+  delete stage.dataset.readingDragging;
+  suppressPointerClick=drag.active||Math.hypot(dx,dy)>12;
+  return;
+ }
+ const moved=Math.hypot(dx,dy)>12;suppressPointerClick=moved;
  if(moved&&Math.abs(dx)>Math.max(35,Math.min(65,innerWidth*.09))&&Math.abs(dx)>Math.abs(dy)*1.35){if(dx<0)advance();else go(targetIndex-1);}
 });
-ui.addEventListener('pointercancel',()=>{rotationDrag=null;pageDrag=null;suppressPageClick=false;});
-window.addEventListener('blur',()=>{rotationDrag=null;pageDrag=null;suppressPageClick=false;});
+window.addEventListener('pointercancel',ev=>{
+ if(rotationDrag?.id===ev.pointerId)rotationDrag=null;
+ if(pageDrag?.id===ev.pointerId){pageDrag=null;delete stage.dataset.readingDragging;}
+});
+window.addEventListener('blur',()=>{rotationDrag=null;pageDrag=null;delete stage.dataset.readingDragging;});
+stage.addEventListener('click',ev=>{
+ if(suppressPointerClick&&ev.detail!==0){ev.preventDefault();ev.stopImmediatePropagation();}
+},true);
 window.addEventListener('hashchange',()=>{if(startupReady)goToHash(location.hash,{immediate:quiet});});
 motionQuery.addEventListener('change',async ev=>{quiet=ev.matches;if(quiet&&playing)await go(2,{immediate:true});else render();});
 const loading=document.querySelector('#loading-screen'),retry=document.querySelector('#loading-retry'),loadingText=loadingCopy[lang];
