@@ -1,4 +1,4 @@
-import{S as E1,O as Z1,W as J1,L as s1,N as d1,g as K1,P as v1,a as G1,e as ee,M as V1,G as te,h as ae,F as se,i as oe,C as re,b as ie,j as C,c as I1,d as J,V as ne,f as e1,T as le}from"./index-DzBHkMwz.js";import{g as ce,l as he,p as ue,r as de,t as pe}from"./route-DipRTpTN.js";import{f as w1,g as W,a as z1,c as T1,b as me,t as ge}from"./run-clips-u0lrJW9h.js";import{r as i1}from"./regions-B4OOdhsX.js";const fe=`
+import{S as E1,O as Z1,W as J1,L as s1,N as d1,g as K1,P as v1,a as G1,e as ee,M as V1,G as te,h as ae,F as se,i as oe,C as re,b as ie,j as C,c as I1,d as J,V as ne,f as e1,T as le}from"./index-BQDQmkjA.js";import{g as ce,l as he,p as ue,r as de,t as pe}from"./route-DipRTpTN.js";import{f as w1,g as W,a as z1,c as T1,b as me,t as ge}from"./run-clips-u0lrJW9h.js";import{r as i1}from"./regions-B4OOdhsX.js";const fe=`
 float shaft(vec2 v,vec2 direction,float spread){
  float along=dot(v,direction),across=dot(v,vec2(-direction.y,direction.x));
  float width=7.+max(0.,along)*spread;
