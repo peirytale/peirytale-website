@@ -1,3 +1,4 @@
+import {prepareTeacupParts} from './teacup-parts.js';
 import {Texture,LinearFilter} from 'three';
 import {landingFragment} from './landing.js';
 import {GuideRig} from './model.js';
@@ -137,11 +138,17 @@ export class RunningGuideRig extends GuideRig{
  }
  // The workshop uses this same articulated outfit right through weight zero.
  // The castle keeps its separately authored frame-zero doorway pose.
- drawArticulated(row,phase,weight,strideMultiplier=1,legsOnly=false){
+ drawArticulated(row,phase,weight,strideMultiplier=1,dressImage=null){
   if(this.disposed)return this.texture;
   const v=this.runViews.get(row)||this.prepareRun(row),o=v.original,d=o.data.def;
+  if(dressImage&&!v.dress)v.dress=prepareTeacupParts(this,v,dressImage);
+  const outfit=dressImage?v.dress:v;
+  const head=outfit.head||v.face||o.head;
+  if(dressImage&&!outfit.visible){
+   outfit.visible=new Set([...outfit.meshes,...v.legs.map(({skin})=>skin),...outfit.arms.map(a=>a.hand)]);
+  }
   for(const current of this.views.values())current.group.visible=current===o;
-  for(const part of o.meshes)part.mesh.visible=part!==v.landing&&(v.meshes.includes(part)||(!v.face&&part===o.head));
+  for(const part of o.meshes)part.mesh.visible=dressImage?outfit.visible.has(part):part!==v.landing&&(v.meshes.includes(part)||part===head);
   const pose=runPose(v.record,phase,weight,v.contact,strideMultiplier);
   this.pose=pose;
   const sideProjection=Math.abs(v.contact.projection.c);
@@ -149,14 +156,16 @@ export class RunningGuideRig extends GuideRig{
   // Follow that bend so the painted sleeve stays broad across the forearm.
   const sleeveProjection=Math.min(1,sideProjection*1.9);
   let rank=0;const order=p=>p.mesh.renderOrder=rank++,curve=(part,source,target,rotation,projection=sideProjection)=>this.deform(part,p=>attachedLimbPoint(p,source,target,rotation,projection)),rigid=(part,from,to,angle=0)=>this.deform(part,p=>rigidPoint(p,from,to,angle));
-  const leg=side=>{const a=v.record.legs[side],b=pose.legs[side],m=v.legs[side];this.deform(m.skin,p=>paintedLegPoint(p,a,b));rigid(m.shoe,a.ankle,b.ankle,b.shoeAngle);for(const p of [m.skin,m.shoe])order(p);};
+  const leg=side=>{
+   const a=v.record.legs[side],b=pose.legs[side],{skin,shoe}=v.legs[side];
+   const footwear=outfit.shoes?.[side]??shoe;
+   this.deform(skin,p=>paintedLegPoint(p,a,b));
+   rigid(footwear,a.ankle,b.ankle,b.shoeAngle);
+   order(skin);order(footwear);
+  };
   d.legOrder.forEach(leg);
-  if(legsOnly){
-   for(const part of o.meshes)part.mesh.visible=v.legs.some(({skin,shoe})=>part===skin||part===shoe);
-   this.render();return this.texture;
-  }
   const arm=side=>{
-   const a=v.record.arms[side],b=pose.arms[side],m=v.arms[side];
+   const a=v.record.arms[side],b=pose.arms[side],m=outfit.arms[side];
    if(m.forearm){
     this.deform(m.sleeve,projectedSleeve(a.shoulder,a.elbow,b.shoulder,b.elbow));
     this.deform(m.forearm,projectedSleeve(a.elbow,a.wrist,b.elbow,b.wrist));
@@ -166,20 +175,20 @@ export class RunningGuideRig extends GuideRig{
    else rigid(m.hand,a.wrist,b.wrist,b.handAngle);
    order(m.sleeve);if(m.forearm)order(m.forearm);order(m.hand);
   };
-  for(let side=0;side<2;side++)if(!d.frontArms.includes(side))arm(side);v.body.mesh.position.y=(v.face||o.head).mesh.position.y=pose.bodyY;order(v.body);d.frontArms.forEach(arm);
-  if(v.sideCover){
+  for(let side=0;side<2;side++)if(!d.frontArms.includes(side))arm(side);outfit.body.mesh.position.y=head.mesh.position.y=pose.bodyY;order(outfit.body);d.frontArms.forEach(arm);
+  if(outfit.sideCover){
    // The projecting forearm curls up in front of its own shoulder.
    v.shoulders.mesh.position.y=pose.bodyY;order(v.shoulders);
-   for(const m of v.arms){order(m.forearm);order(m.hand);}
-   const aft=v.sideCover.material.uniforms.aft.value;
+   for(const m of outfit.arms){order(m.forearm);order(m.hand);}
+   const aft=outfit.sideCover.material.uniforms.aft.value;
    aft[0]=pose.arms[0].aft;aft[1]=pose.arms[1].aft;
-   v.sideCover.mesh.position.y=pose.bodyY;order(v.sideCover);
+   outfit.sideCover.mesh.position.y=pose.bodyY;order(outfit.sideCover);
 
   }
   v.shoulders.mesh.position.y=pose.bodyY;
   // The west collar carries the original nape pixels at its top seam.
-  if(d.name==='W'){order(o.head);order(v.shoulders);}
-  else{if(!v.sideCover)order(v.shoulders);order(v.face||o.head);}
+  if(d.name==='W'){order(head);order(v.shoulders);}
+  else{if(!outfit.sideCover)order(v.shoulders);order(head);}
   this.render();return this.texture;
  }
  restore(){super.restore();if(this.landingAtlas)this.landingAtlas.needsUpdate=true;}

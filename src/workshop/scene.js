@@ -34,9 +34,9 @@ export class WorkshopScene{
   if(this.ready)return this.ready;
   this.ready=Promise.allSettled(room.assets.map(async name=>{const blob=await this.loader.load(name),url=URL.createObjectURL(blob);try{const t=await new THREE.TextureLoader().loadAsync(url);t.colorSpace=THREE.NoColorSpace;t.generateMipmaps=true;t.minFilter=THREE.LinearMipmapLinearFilter;t.anisotropy=Math.min(4,this.renderer.capabilities.getMaxAnisotropy());return t;}finally{URL.revokeObjectURL(url);}})).then(results=>{
    const textures=results.filter(r=>r.status==='fulfilled').map(r=>r.value),failed=results.find(r=>r.status==='rejected');if(this.disposed||failed){textures.forEach(t=>t.dispose());if(failed)throw failed.reason;return;}
-   const [source,background,dressAtlas,dressFlow]=textures;this.textures=textures;
-   for(const t of [dressAtlas,dressFlow]){t.generateMipmaps=false;t.minFilter=THREE.LinearFilter;}
-   this.dressAtlas=dressAtlas;this.dressFlow=dressFlow;
+   const [source,background,dressAtlas]=textures;this.textures=textures;
+   dressAtlas.generateMipmaps=false;dressAtlas.minFilter=THREE.LinearFilter;
+   this.dressAtlas=dressAtlas;
    this.source=source;this.background=background;this.build();this.loaded=true;this.prepareBaseline();this.draw();
   }).catch(e=>{this.textures.forEach(t=>t.dispose());this.textures=[];this.ready=null;throw e;});return this.ready;
  }

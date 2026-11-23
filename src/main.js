@@ -6,6 +6,7 @@ import {pageFilmCopy} from './content/page-film.js';
 import {AssetLoader} from './asset-loader.js';
 import {loadingCopy} from './content/loading.js';
 import {adventure as adventureConfig,adventureCopy} from './castle-adventure/config.js';
+import {teacupCopy} from './content/teacup-dress.js';
 import {workshopCopy,room as workshopRoom,objects,toPage} from './workshop/layout.js';
 import {clampReadingCenter,isPortraitBook,overviewFrame,readingFrame} from './reading-frame.js';
 const app=document.querySelector('#app');
@@ -99,7 +100,7 @@ function syncAdventureUI(state){
  castleHit.hidden=!visible||!adventure?.loaded||chapter?.mode!=='castle';castleHit.disabled=adventure?.state!=='idle';castleHit.setAttribute('aria-label',adventureCopy[lang].enter);
  if(visible){const points=adventureConfig.hitPolygon.map(p=>scene.projectPagePoint(...p)),xs=points.map(p=>p.x),ys=points.map(p=>p.y),left=Math.min(...xs),top=Math.min(...ys),w=Math.max(...xs)-left,h=Math.max(...ys)-top;Object.assign(castleHit.style,{left:`${left}px`,top:`${top}px`,width:`${w}px`,height:`${h}px`,clipPath:`polygon(${points.map(p=>`${(p.x-left)/w*100}% ${(p.y-top)/h*100}%`).join(',')})`});}
 }
-function refreshChapter(){if(scene&&chapter&&scene.pageFilm===chapter)scene.updatePageFilmMaps();}
+function refreshChapter(){workshopUI?.positionGuide();if(scene&&chapter&&scene.pageFilm===chapter)scene.updatePageFilmMaps();}
 function workshopVisible(){return startupReady&&!turning&&!contents&&!playing&&(index===5||index===4&&chapter?.mode==='castle');}
 let announcedWorkshop=false;
 function syncWorkshopUI(state){
@@ -110,6 +111,11 @@ function syncWorkshopUI(state){
   if(state.mode==='workshop'&&!announcedWorkshop){announcedWorkshop=true;document.querySelector('#announcement').textContent=workshopCopy[lang].ready;}
   if(state.mode==='workshop'&&state.actorState==='entering'&&previousActor!=='entering')document.querySelector('#announcement').textContent=workshopCopy[lang].entering;
   if(state.mode==='workshop'&&state.actorState==='idle'&&previousActor==='entering')document.querySelector('#announcement').textContent=workshopCopy[lang].actorReady;
+  const changedOutfit=state.dressed!==(canvas.dataset.workshopDressed==='true');
+  if(state.mode==='workshop'&&!state.changing&&changedOutfit){
+   document.querySelector('#announcement').textContent=teacupCopy[lang][state.dressed?'wearing':'uniform'];
+  }
+  if(!state.changing)canvas.dataset.workshopDressed=String(state.dressed);
   if(state.mode==='castle')announcedWorkshop=false;
  }
  refreshChapter();syncAdventureUI();workshopUI?.sync(workshopVisible());

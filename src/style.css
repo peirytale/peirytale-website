@@ -2,9 +2,9 @@
 #castle-enter{position:absolute;z-index:4;padding:0;background:transparent;touch-action:manipulation}
 #castle-enter[hidden]{display:none}#castle-enter:disabled{cursor:default}
 html[data-renderer=fallback] #book-ui{--book-width:min(84vw,calc((100svh - 160px)*1.428571),943px);--book-height:min(58.8vw,calc(100svh - 160px),660px)}
-#workshop-fallback{position:absolute;z-index:5;pointer-events:none;font-size:12px}#workshop-fallback[hidden]{display:none}#workshop-fallback [data-fallback-enter]{position:absolute;bottom:6%;left:50%;transform:translateX(-50%);background:#fff5e8e8;pointer-events:auto;white-space:nowrap}.workshop-fallback-art{position:absolute;inset:0;overflow:hidden;pointer-events:auto}.workshop-fallback-art img{position:absolute;width:106.25%;height:114.286%;max-width:none;left:-3.088%;top:-4.412%}.workshop-fallback-tools{position:absolute;bottom:0;left:3%;right:3%;display:flex;gap:8px;justify-content:space-between;align-items:center;pointer-events:auto}.workshop-fallback-tools button,.workshop-fallback-tools select{font:inherit;min-height:35px;max-width:65%;background:#fff6e9ed;border:0;border-radius:3px;color:inherit}.workshop-fallback-description{position:absolute;bottom:14%;left:10%;right:10%;padding:10px;background:#fff6e9ed;font-size:12px;pointer-events:auto}
+#workshop-fallback{position:absolute;z-index:5;pointer-events:none;font-size:12px}#workshop-fallback[hidden]{display:none}#workshop-fallback [data-fallback-enter]{position:absolute;bottom:6%;left:50%;transform:translateX(-50%);background:#fff5e8e8;pointer-events:auto;white-space:nowrap}.workshop-fallback-art{position:absolute;inset:0;overflow:hidden;pointer-events:auto}.workshop-fallback-art img{position:absolute;width:106.25%;height:114.286%;max-width:none;left:-3.088%;top:-4.412%}.workshop-fallback-tools{position:absolute;bottom:0;left:3%;right:3%;display:flex;gap:8px;justify-content:space-between;align-items:center;pointer-events:auto}.workshop-fallback-tools select{font:inherit;min-height:35px;max-width:65%;background:#fff6e9ed;border:0;border-radius:3px;color:inherit}.workshop-fallback-description{position:absolute;bottom:14%;left:10%;right:10%;padding:10px;background:#fff6e9ed;font-size:12px;pointer-events:auto}
 #castle-enter:focus-visible{outline:0;background:#f9e5b32b;box-shadow:inset 0 0 60px #efd8a76b}
-#workshop-ui{position:absolute;z-index:5;pointer-events:none;color:#68564f;font-family:Georgia,'Noto Serif CJK TC',serif}#workshop-ui[hidden]{display:none}.workshop-shield{position:absolute;inset:0;pointer-events:auto}.workshop-hit{position:absolute;pointer-events:auto;padding:0;min-height:0;background:transparent;touch-action:manipulation}.workshop-hit:focus-visible{outline:0;background:#fff2d64d;box-shadow:inset 0 0 0 2px #a77e64}.workshop-tools{position:absolute;left:4%;right:4%;bottom:0;display:flex;justify-content:space-between;pointer-events:none}.workshop-tools button{pointer-events:auto;padding:3px 8px;min-height:28px;font-size:clamp(9px,1vw,12px);background:#fff4e4d9;border-radius:3px}.workshop-list,.workshop-description,.workshop-loading{pointer-events:auto;position:absolute;background:#fff6e9f5;border:1px solid #cfbfa9;box-shadow:0 5px 20px #6d4c3420;border-radius:4px}.workshop-list{inset:7% 12%;overflow:auto;padding:12px 18px;overscroll-behavior:contain;scrollbar-width:thin}.workshop-list p{margin:14px 0 2px;font-size:12px;color:#9b7568}.workshop-list button{min-height:44px;display:block;text-align:left;width:100%;padding:8px 4px;font-size:13px;border-bottom:1px solid #d9c8b64d}.workshop-list .workshop-dismiss{position:sticky;top:-12px;background:#fff6e9;text-align:right}.workshop-description{left:24%;right:10%;bottom:7%;padding:10px 32px 10px 14px;font-size:12px;line-height:1.6;display:flex;flex-direction:column}.workshop-description strong{font-weight:400;color:#936d61}.workshop-description button{position:absolute;right:0;top:0;padding:2px 8px;min-height:30px}.workshop-loading{left:17%;right:17%;top:38%;padding:15px;display:flex;align-items:center;justify-content:center;flex-wrap:wrap;font-size:13px}.workshop-loading button{font-size:12px;text-decoration:underline}.workshop-objects{position:absolute;inset:0;pointer-events:none}@media(max-width:699px){.workshop-tools{left:2%;right:2%;bottom:-1%}.workshop-tools button{font-size:9px;min-height:25px;padding:2px 5px}.workshop-description{left:9%;right:9%;bottom:11%;font-size:10px;padding:7px 25px 7px 9px}.workshop-list{inset:1% 5%;padding:5px 12px}.workshop-list p{margin-top:6px}.workshop-list .workshop-dismiss{top:-5px}}
+#workshop-ui{position:absolute;z-index:5;pointer-events:none;color:#68564f;font-family:Georgia,'Noto Serif CJK TC',serif}#workshop-ui[hidden]{display:none}.workshop-shield{position:absolute;inset:0;pointer-events:auto}.workshop-hit{position:absolute;pointer-events:auto;padding:0;min-height:0;background:transparent;touch-action:manipulation}.workshop-hit:focus-visible{outline:0;background:#fff2d64d;box-shadow:inset 0 0 0 2px #a77e64}.workshop-description,.workshop-loading{pointer-events:auto;position:absolute;background:#fff6e9f5;border:1px solid #cfbfa9;box-shadow:0 5px 20px #6d4c3420;border-radius:4px}.workshop-description{left:24%;right:10%;bottom:7%;padding:10px 32px 10px 14px;font-size:12px;line-height:1.6;display:flex;flex-direction:column}.workshop-description strong{font-weight:400;color:#936d61}.workshop-description button{position:absolute;right:0;top:0;padding:2px 8px;min-height:30px}.workshop-loading{left:17%;right:17%;top:38%;padding:15px;display:flex;align-items:center;justify-content:center;flex-wrap:wrap;font-size:13px}.workshop-loading button{font-size:12px;text-decoration:underline}.workshop-objects{position:absolute;inset:0;pointer-events:none}@media(max-width:699px){.workshop-description{left:9%;right:9%;bottom:11%;font-size:10px;padding:7px 25px 7px 9px}}
 @media(max-width:699px){header{top:12px;left:5%;right:4%}.wordmark{font-size:23px}header nav{gap:1px;font-size:10px}header button{padding:9px 8px}.open-book{font-size:12px;top:calc(50% + var(--book-height)/2 + 12px)}.rotation-hint{font-size:9px;bottom:15px}.book-rotation{inset:15% 9% 19%}.page-copy{inset:22% 7% 15%}.page-copy h1{font-size:12px}.title-copy h1{font-size:27px}.eyebrow{font-size:10px}.page-subtitle{font-size:9px}}
 @media(max-height:500px){header{top:5px}.wordmark{font-size:21px}header button{min-height:36px;padding:6px 10px}.rotation-hint{display:none}.open-book{top:calc(50% + var(--book-height)/2 + 2px);min-height:32px;padding:5px 15px}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
@@ -117,13 +117,12 @@ html[data-renderer=fallback] [data-reading-portrait=true] .printed-heading {
   line-height: 1.12;
 }
 
-[data-reading-portrait=true] :is(.workshop-tools, .workshop-fallback-tools) {
+[data-reading-portrait=true] .workshop-fallback-tools {
   left: 12px;
   right: 12px;
   bottom: calc(max(12px, env(safe-area-inset-bottom)) + 54px);
-  gap: 8px;
 }
-[data-reading-portrait=true] :is(.workshop-tools button, .workshop-fallback-tools button, .workshop-fallback-tools select) {
+[data-reading-portrait=true] .workshop-fallback-tools select {
   min-height: 44px;
   padding: 5px 9px;
   font-size: 13px;
@@ -138,11 +137,6 @@ html[data-renderer=fallback] [data-reading-portrait=true] .printed-heading {
   font-size: 14px;
 }
 [data-reading-portrait=true] .workshop-description button { min-width: 44px; min-height: 44px; }
-[data-reading-portrait=true] .workshop-list {
-  inset: 70px 12px calc(max(12px, env(safe-area-inset-bottom)) + 106px);
-  padding: 8px 14px;
-}
-[data-reading-portrait=true] .workshop-list .workshop-dismiss { top: -8px; }
 
 .workshop-description [data-teacup-outfit],
 .workshop-fallback-description [data-teacup-outfit] {
@@ -156,3 +150,7 @@ html[data-renderer=fallback] [data-reading-portrait=true] .printed-heading {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+
+.workshop-guide-hit{background:transparent;border:0;min-height:0;padding:0;border-radius:42%;cursor:pointer;touch-action:pan-y pinch-zoom}
+.workshop-guide-hit:focus-visible{outline:2px solid #b18d65;outline-offset:1px}
+.workshop-fallback-guide-hit{position:absolute}

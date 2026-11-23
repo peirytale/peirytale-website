@@ -2,7 +2,7 @@ import {teacupAssets} from '../content/teacup-dress.js';
 // All coordinates refer to the owner's 1445 × 1088 drawing, not product sizes.
 // Geometry, visual slots, navigation and bilingual editorial copy stay separate.
 export const room={sourceSize:[1445,1088],crop:[42,42,1360,952],size:[960,672],
- assets:['workshop-source.webp','workshop-room.webp',teacupAssets.figure,teacupAssets.flow],transition:{hold:.28,turn:1.25,reveal:1.65},
+ assets:['workshop-source.webp','workshop-room.webp',teacupAssets.figure],transition:{hold:.28,turn:1.25,reveal:1.65},
  floor:[[90,804],[437,690],[768,712],[1070,774],[1352,847],[1352,972],[373,972]],
  obstacles:[[[436,690],[685,682],[756,722],[722,772],[474,784]],[[768,686],[1100,724],[1070,774],[768,735]],[[1068,752],[1373,799],[1352,847],[1068,800]]],
  entry:[722,928],cell:16,
